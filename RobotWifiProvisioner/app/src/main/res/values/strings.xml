@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Robot Wifi Provisioner</string>
+    <string name="title">Thiết lập Wi-Fi bằng QR</string>
+    <string name="start_scan">Bắt đầu quét</string>
+    <string name="replay_guide">Nghe hướng dẫn</string>
+    <string name="status_idle">Sẵn sàng quét mã QR Wi-Fi</string>
+</resources>

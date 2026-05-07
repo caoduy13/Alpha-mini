@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--<manifest>
+    <service
+        name="speech.recognition"
+        class="com.ubtrobot.speech.service.RecognitionSystemService">
+        <call path="/speech/recognize" />
+        <call path="/speech/recognizing" />
+    </service>
+
+    <service
+        name="speech.synthesis"
+        class="com.ubtrobot.speech.service.SynthesisSystemService">
+        <call path="/speech/synthesize" />
+        <call path="/speech/synthesizing" />
+        <call path="/speech/synthesis/speaking-voice/list" />
+    </service>
+
+    <service
+        name="speech.understanding"
+        class="com.ubtrobot.speech.service.UnderstandingSystemService">
+        <call path="/speech/understand" />
+    </service>
+
+    <service
+        name="speech.wake_up"
+        class="com.ubtrobot.speech.service.WakeUpSystemService" />
+</manifest>-->
+<service name="speech">
+
+  <call path="/speech/synthesize"/>
+  <call path="/speech/synthesizing"/>
+  <call path="/speech/synthesize/speaking-voice/list"/>
+  <call path="/speech/recognize"/>
+  <call path="/speech/recognizing"/>
+  <call path="/speech/understand"/>
+</service>

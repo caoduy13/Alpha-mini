@@ -1,0 +1,8 @@
+// Root build.gradle (AGP 8.x)
+plugins {
+    id 'com.android.application' version '8.7.3' apply false
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}

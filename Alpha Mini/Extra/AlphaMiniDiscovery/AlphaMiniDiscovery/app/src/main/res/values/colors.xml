@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark base -->
+    <color name="bg_0">#0D1117</color>
+    <color name="bg_1">#12151C</color>
+    <color name="card_bg">#1E2228</color>
+    <color name="text_primary">#E6EDF3</color>
+    <color name="text_secondary">#9AA4AF</color>
+
+    <!-- Accent (electric blue) -->
+    <color name="accent_primary">#4FC3F7</color>
+    <color name="accent_primary_dark">#0288D1</color>
+    <color name="accent_purple">#7C4DFF</color>
+
+    <!-- Status -->
+    <color name="status_online">#00E676</color>
+    <color name="status_offline">#FF5252</color>
+
+    <!-- Ripple / separators -->
+    <color name="ripple">#334FC3F7</color>
+    <color name="divider">#22FFFFFF</color>
+
+    <!-- Emotion glows -->
+    <color name="glow_happy">#334FC3F7</color>
+    <color name="glow_thinking">#337C4DFF</color>
+    <color name="glow_angry">#33FF5252</color>
+
+    <!-- Back-compat keys used by older layouts (safe to keep) -->
+    <color name="colorPrimary">@color/accent_primary</color>
+    <color name="colorPrimaryDark">@color/bg_0</color>
+    <color name="colorAccent">@color/accent_primary</color>
+    <color name="chonskill">#EBDC2E</color>
+</resources>

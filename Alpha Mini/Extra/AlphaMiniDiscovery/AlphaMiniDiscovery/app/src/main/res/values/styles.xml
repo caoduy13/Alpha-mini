@@ -1,0 +1,7 @@
+<resources>
+
+    <!-- Base application theme. -->
+    <!-- Backward-compatible alias: các Activity cũ vẫn dùng AppTheme -->
+    <style name="AppTheme" parent="Theme.AlphaMind" />
+
+</resources>

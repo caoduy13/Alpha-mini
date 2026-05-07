@@ -1,0 +1,65 @@
+<resources>
+    <string name="app_name">AlphaMind</string>
+
+    <!-- Splash -->
+    <string name="splash_title">AlphaMind</string>
+    <string name="splash_subtitle">Smart Control for Alpha Mini</string>
+
+    <!-- Main -->
+    <string name="robot_name">Alpha Mini</string>
+    <string name="status_online">● Online</string>
+    <string name="status_offline">● Offline</string>
+    <string name="settings">Settings</string>
+
+    <string name="status_card_title">Status</string>
+    <string name="status_ip_label">Robot IP</string>
+    <string name="status_uptime_label">Connected</string>
+    <string name="status_ip_unknown">Chưa kết nối</string>
+    <string name="status_uptime_unknown">--</string>
+
+    <string name="emotion_title">Emotion</string>
+    <string name="emotion_happy">Happy</string>
+    <string name="emotion_thinking">Thinking</string>
+    <string name="emotion_angry">Angry</string>
+    <string name="emotion_unknown">--</string>
+
+    <string name="conversation_title">Conversation</string>
+    <string name="conversation_placeholder">Tap to start…</string>
+    <string name="conversation_list_desc">Conversation messages</string>
+    <string name="command_hint">Gõ lệnh… (ví dụ: xin chào)</string>
+    <string name="btn_send">Send</string>
+
+    <string name="btn_start_chat">Start Chat</string>
+    <string name="btn_stop">Stop</string>
+
+    <string name="quick_reconnect">Reconnect</string>
+    <string name="quick_status">Status</string>
+    <string name="quick_mute">Mute</string>
+    <string name="quick_settings">Settings</string>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Settings</string>
+    <string name="connection_card_title">Robot Connection</string>
+    <string name="robot_ip_hint">Robot IP (ví dụ: 192.168.1.50)</string>
+    <string name="btn_auto_discover">Auto Discover</string>
+    <string name="btn_save_connect">Save &amp; Connect</string>
+
+    <string name="about_card_title">About</string>
+    <string name="app_version_label">App version</string>
+    <string name="robot_model_label">Robot model</string>
+    <string name="robot_model_value">Alpha Mini</string>
+
+    <string name="switch_auto_reconnect">Auto-reconnect</string>
+    <string name="switch_emotion_anim">Show emotion animation</string>
+
+    <!-- Errors / toasts -->
+    <string name="toast_need_ip">Vui lòng nhập IP robot</string>
+    <string name="toast_connecting">Đang kết nối…</string>
+    <string name="toast_connected">Kết nối thành công</string>
+    <string name="toast_connect_failed">Không kết nối được robot</string>
+    <string name="toast_discovering">Đang tìm robot trong Wi‑Fi…</string>
+    <string name="toast_discover_done">Đã tìm thấy robot: %1$s</string>
+    <string name="toast_discover_none">Không tìm thấy robot (port 8080)</string>
+    <string name="toast_muted">Muted</string>
+    <string name="toast_unmuted">Unmuted</string>
+</resources>

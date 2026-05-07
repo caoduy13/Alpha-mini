@@ -1,0 +1,13 @@
+# Alpha Mini Server — Python 3.11+ khuyến nghị. SDK UBTECH (mini) cài riêng theo hãng nếu chưa có.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+google-genai>=1.30,<2
+python-dotenv>=1.0,<2
+pydantic>=2,<3
+python-multipart>=0.0.9,<1
+# TTS qua MP3 + play_online_audio (ROBOT_TTS_MODE=http_only|prefer_http)
+edge-tts>=6,<8
+aiohttp>=3.8,<4
+# Theo khai báo của google-genai (>=13). Nếu mini_sdk robot báo lỗi WebSocket, thử hạ google-genai hoặc cập nhật SDK.
+websockets>=13,<17
+# Tuỳ chọn: ROBOT_TTS_HTTP_ENGINE=google — pip install google-cloud-texttospeech

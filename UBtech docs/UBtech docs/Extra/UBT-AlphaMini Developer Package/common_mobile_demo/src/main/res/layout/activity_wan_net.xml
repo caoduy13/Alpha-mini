@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".activity.MainActivity"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/tv_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <EditText
+        android:id="@+id/et_to"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Send Msg To"
+        android:text="mark-2"
+        />
+
+    <Button
+        android:id="@+id/btn_connect"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="connect"
+        android:onClick="onClick"/>
+    <Button
+        android:id="@+id/btn_disconnect"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="disconnect"
+        android:onClick="onClick"/>
+    <Button
+        android:id="@+id/btn_sub"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="sub"
+        android:onClick="onClick"/>
+    <Button
+        android:id="@+id/btn_unsub"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="unsub"
+        android:onClick="onClick"/>
+    <Button
+        android:id="@+id/btn_call_app"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Call App"
+        android:onClick="onClick"/>
+    <Button
+        android:id="@+id/btn_call_service"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Call service"
+        android:onClick="onClick"/>
+    <EditText
+        android:id="@+id/et_tts_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="TTS text"
+        />
+    <Button
+        android:id="@+id/btn_play_tts"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Play TTS"
+        android:onClick="onClick"/>
+    <EditText
+        android:id="@+id/et_action_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Action name"
+        android:text="蹲下站起"
+        />
+    <Button
+        android:id="@+id/btn_dance"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Dance"
+        android:onClick="onClick"/>
+</LinearLayout>

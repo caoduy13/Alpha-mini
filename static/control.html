@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Alpha Mini — điều khiển robot</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3d8bfd;
+      --ok: #3ecf8e;
+      --err: #f07178;
+      --border: #2a3544;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      padding: 1rem;
+      max-width: 56rem;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem; }
+    p.sub { color: var(--muted); font-size: 0.875rem; margin: 0 0 1.25rem; }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    h2 { font-size: 0.95rem; margin: 0 0 0.75rem; color: var(--muted); font-weight: 600; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
+    input[type="text"], input[type="password"], textarea {
+      width: 100%;
+      padding: 0.5rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0d1117;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    textarea { min-height: 4rem; resize: vertical; }
+    .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; margin-bottom: 0.75rem; }
+    .row > * { flex: 1 1 12rem; }
+    button {
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: #243044;
+      color: var(--text);
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+    }
+    button:hover { background: #2d3d56; border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary:hover { filter: brightness(1.08); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+      gap: 0.5rem;
+    }
+    pre#log {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.65rem;
+      font-size: 0.75rem;
+      overflow: auto;
+      max-height: 10rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+    }
+    .cam-wrap {
+      text-align: center;
+      background: #0d1117;
+      border-radius: 8px;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+    }
+    .cam-wrap img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+      vertical-align: middle;
+    }
+    .pill { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+    .pill.on { background: rgba(62, 207, 142, 0.2); color: var(--ok); }
+    .pill.off { background: rgba(240, 113, 120, 0.15); color: var(--err); }
+    details.hint { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.75rem; }
+    details.hint summary { cursor: pointer; color: var(--accent); }
+    details.hint ul { margin: 0.5rem 0 0 1.1rem; padding: 0; }
+  </style>
+</head>
+<body>
+  <h1>Điều khiển robot Alpha Mini</h1>
+  <p class="sub">Trang này gọi API cùng máy chủ. Nếu <code>.env</code> có <code>ALPHAMINI_SKILL_TOKEN</code>, nhập token bên dưới (được lưu trong trình duyệt).</p>
+
+  <section>
+    <h2>Bảo mật (tùy chọn)</h2>
+    <label for="token">X-Alphamini-Token (skill)</label>
+    <div class="row">
+      <div style="flex:2 1 16rem">
+        <input type="password" id="token" autocomplete="off" placeholder="Để trống nếu server chưa bật token" />
+      </div>
+      <button type="button" id="saveToken">Lưu token</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Trạng thái <span id="livePill" class="pill off">…</span></h2>
+    <details class="hint">
+      <summary>Robot offline / <code>tcp_ok: false</code> — làm gì?</summary>
+      <ul>
+        <li>Trên app UBTECH hoặc màn hình robot, xem <strong>IPv4 Wi‑Fi thật</strong>. Mở <code>.env</code> → <code>ROBOT_IP=</code> đúng IP đó, rồi <strong>restart server</strong>.</li>
+        <li><strong>GET /robot/diagnose</strong> (nút bên dưới): <code>timeout</code> thường là sai mạng/IP hoặc robot tắt/ngủ; <code>connection refused</code> thường là tới được máy nhưng cổng 9090 không mở (sai thiết bị, hoặc robot chưa sẵn sàng SDK) — đợi robot online, thử tắt tạm firewall, hoặc <code>ROBOT_TYPE=edu</code> nếu firmware quốc tế.</li>
+        <li>Sau khi sửa IP: <strong>Làm mới /status</strong> hoặc <strong>POST /robot/connect</strong> (quét LAN).</li>
+        <li><strong>Ping</strong> trên Windows đôi khi báo «General failure» dù mạng ổn (ICMP bị chặn). Đừng chỉ dựa vào ping; ưu tiên IP từ app và kết quả <strong>/robot/diagnose</strong>.</li>
+        <li><strong>Không cần IP trên mắt robot:</strong> trong <code>.env</code> bật <code>ROBOT_AUTO_DISCOVER=true</code> (mặc định trong bản mới) — server dùng SDK quét LAN rồi thử kết nối; có thể bật <code>ROBOT_PERSIST_DISCOVERED_IP=true</code> để ghi IP vào <code>.env</code>. Vẫn dùng <code>POST /robot/connect</code> hoặc nút quét nếu cần.</li>
+        <li><strong>/status:</strong> <code>robot_online</code> = SDK đã kết nối (<code>robot_sdk_connected</code>). Xem thêm <code>robot_last_connect_error</code> (lỗi SDK lần cuối). <code>robot_ws_alive</code> chỉ tham khảo — có Wi‑Fi/internet không có nghĩa là đã tới được IP robot.</li>
+      </ul>
+    </details>
+    <div class="row">
+      <button type="button" class="primary" id="btnStatus">Làm mới /status</button>
+      <button type="button" id="btnDiagnose">GET /robot/diagnose (TCP)</button>
+      <button type="button" id="btnScan">GET /robot/scan</button>
+      <button type="button" id="btnConnect">POST /robot/connect</button>
+      <button type="button" id="btnReconnect">POST /robot/reconnect</button>
+    </div>
+    <pre id="log">Chưa có dữ liệu.</pre>
+  </section>
+
+  <section>
+    <h2>Camera robot</h2>
+    <div class="row">
+      <button type="button" id="btnCam">Làm mới ảnh</button>
+    </div>
+    <div class="cam-wrap">
+      <img id="cam" alt="Camera robot" src="/robot/camera/frame" width="640" />
+    </div>
+  </section>
+
+  <section>
+    <h2>Lệnh nhanh (GET /robot/trigger)</h2>
+    <div class="grid" id="triggers"></div>
+    <div style="margin-top:0.75rem">
+      <label for="audioUrl">URL nhạc (cmd=audio)</label>
+      <div class="row">
+        <div style="flex:2 1 18rem">
+          <input type="text" id="audioUrl" placeholder="https://…/file.mp3" />
+        </div>
+        <button type="button" id="btnAudio">Phát nhạc</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Chat (POST /chat)</h2>
+    <label for="chatText">Nội dung</label>
+    <textarea id="chatText" placeholder="Ví dụ: chào hỏi, đứng dậy, nhảy…"></textarea>
+    <div class="row" style="margin-top:0.5rem">
+      <label style="display:flex;align-items:center;gap:0.35rem;flex:0 0 auto">
+        <input type="checkbox" id="chatSpeak" checked /> Robot đọc phản hồi (speak)
+      </label>
+      <button type="button" class="primary" id="btnChat">Gửi</button>
+    </div>
+  </section>
+
+  <script>
+    const LS = "alphamini_skill_token";
+    const tokenEl = document.getElementById("token");
+    const logEl = document.getElementById("log");
+    const camEl = document.getElementById("cam");
+    const livePill = document.getElementById("livePill");
+
+    tokenEl.value = localStorage.getItem(LS) || "";
+    document.getElementById("saveToken").onclick = () => {
+      localStorage.setItem(LS, tokenEl.value.trim());
+      log("Đã lưu token vào trình duyệt.");
+    };
+
+    function headersJson() {
+      const h = { "Content-Type": "application/json" };
+      const t = tokenEl.value.trim();
+      if (t) h["X-Alphamini-Token"] = t;
+      return h;
+    }
+    function headersPlain() {
+      const h = {};
+      const t = tokenEl.value.trim();
+      if (t) h["X-Alphamini-Token"] = t;
+      return h;
+    }
+
+    function log(msg) {
+      const line = typeof msg === "string" ? msg : JSON.stringify(msg, null, 2);
+      logEl.textContent = line + "\n\n" + logEl.textContent.slice(0, 6000);
+    }
+
+    async function jfetch(url, opt) {
+      const r = await fetch(url, opt);
+      const text = await r.text();
+      let body;
+      try { body = JSON.parse(text); } catch { body = text; }
+      if (!r.ok) throw new Error(r.status + " " + (typeof body === "string" ? body : JSON.stringify(body)));
+      return body;
+    }
+
+    document.getElementById("btnStatus").onclick = async () => {
+      try {
+        const s = await jfetch("/status", { headers: headersPlain() });
+        log(s);
+        const on = s.robot_online === true;
+        livePill.textContent = on ? "Robot online" : "Robot offline";
+        livePill.className = "pill " + (on ? "on" : "off");
+      } catch (e) { log(String(e)); livePill.textContent = "Lỗi"; livePill.className = "pill off"; }
+    };
+
+    document.getElementById("btnDiagnose").onclick = async () => {
+      try { log(await jfetch("/robot/diagnose", { headers: headersPlain() })); }
+      catch (e) { log(String(e)); }
+    };
+    document.getElementById("btnScan").onclick = async () => {
+      try { log(await jfetch("/robot/scan", { headers: headersPlain() })); }
+      catch (e) { log(String(e)); }
+    };
+    document.getElementById("btnConnect").onclick = async () => {
+      try { log(await jfetch("/robot/connect", { method: "POST", headers: headersPlain() })); }
+      catch (e) { log(String(e)); }
+    };
+    document.getElementById("btnReconnect").onclick = async () => {
+      try { log(await jfetch("/robot/reconnect", { method: "POST", headers: headersPlain() })); }
+      catch (e) { log(String(e)); }
+    };
+
+    document.getElementById("btnCam").onclick = () => {
+      camEl.src = "/robot/camera/frame?t=" + Date.now();
+    };
+
+    const cmds = [
+      ["greet", "Chào"],
+      ["dance", "Nhảy"],
+      ["stop", "Dừng"],
+      ["sit", "Ngồi"],
+      ["stand", "Đứng"],
+      ["left", "Trái"],
+      ["right", "Phải"],
+      ["forward", "Tiến"],
+      ["mixi", "Mixi show"],
+      ["o_i_i", "O I I"],
+      ["quy khoi", "Quỳ Khôi"],
+    ];
+    const grid = document.getElementById("triggers");
+    cmds.forEach(([cmd, label]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.onclick = async () => {
+        const q = encodeURIComponent(cmd);
+        try {
+          log(await jfetch("/robot/trigger?cmd=" + q, { headers: headersPlain() }));
+        } catch (e) { log(String(e)); }
+      };
+      grid.appendChild(b);
+    });
+
+    document.getElementById("btnAudio").onclick = async () => {
+      const u = document.getElementById("audioUrl").value.trim();
+      if (!u) { log("Nhập URL mp3/wav."); return; }
+      const url = "/robot/trigger?cmd=audio&url=" + encodeURIComponent(u);
+      try { log(await jfetch(url, { headers: headersPlain() })); }
+      catch (e) { log(String(e)); }
+    };
+
+    document.getElementById("btnChat").onclick = async () => {
+      const text = document.getElementById("chatText").value.trim();
+      if (!text) { log("Nhập nội dung chat."); return; }
+      const speak = document.getElementById("chatSpeak").checked;
+      try {
+        log(await jfetch("/chat", {
+          method: "POST",
+          headers: headersJson(),
+          body: JSON.stringify({ text, speak }),
+        }));
+      } catch (e) { log(String(e)); }
+    };
+
+    document.getElementById("btnStatus").click();
+  </script>
+</body>
+</html>

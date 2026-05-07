@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Env & secrets
+.env
+.env.local
+
+# SSL keys (cert có thể commit nếu là self-signed dev, key thì không)
+ssl/*.key
+certs/*.key
+certs/*.pem
+
+# TTS cache & media
+tts_cache/
+*.mp3
+
+# OpenClaw bridge files
+.alphamini_pending_chat.txt
+.alphamini_last_reply.txt
+.alphamini_pending_qr_image.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android / Gradle (build & local caches — tránh path quá dài và repo phình)
+.gradle/
+**/.gradle/
+**/build/
+.gradle-tmp/
+**/local.properties
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Archives & device dumps — quá lớn cho GitHub qua HTTPS (giữ bản local)
+*.zip
+*.apk
+UnlockTool-*
+AICourseRobot_extracted/
+**/replay_pid*.log
+**/hs_err_pid*.log
+RobotWifiProvisioner/*-packages.txt
+*.hprof
+*.rar
+*.7z

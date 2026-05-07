@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Theme bridge cho Compose -->
+    <style name="Theme.AlphaMiniBle" parent="@android:style/Theme.Material.Light.NoActionBar" />
+
+</resources>
+

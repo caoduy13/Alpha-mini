@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Theme tối cho AlphaMind.
+      Dùng MaterialComponents để có button, textfield hiện đại.
+    -->
+    <style name="Theme.AlphaMind" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/accent_primary</item>
+        <item name="colorPrimaryVariant">@color/accent_primary_dark</item>
+        <item name="colorSecondary">@color/accent_primary</item>
+
+        <item name="android:statusBarColor">@color/bg_0</item>
+        <item name="android:navigationBarColor">@color/bg_0</item>
+        <item name="android:windowBackground">@color/bg_0</item>
+
+        <!-- Ripple/Highlight -->
+        <item name="colorControlHighlight">@color/ripple</item>
+        <item name="android:colorEdgeEffect">@color/accent_primary</item>
+
+        <!-- Typography (Poppins/Inter sẽ dùng system sans-serif nếu máy không có font tải về) -->
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="fontFamily">sans-serif</item>
+    </style>
+
+    <!-- Theme riêng cho Splash để đặt nền gradient full-screen -->
+    <style name="Theme.AlphaMind.Splash" parent="Theme.AlphaMind">
+        <item name="android:windowBackground">@drawable/bg_gradient_dark</item>
+    </style>
+</resources>

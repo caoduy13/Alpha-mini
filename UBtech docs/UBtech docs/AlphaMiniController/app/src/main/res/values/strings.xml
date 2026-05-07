@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AlphaMini Controller</string>
+    <string name="title_control">Robot Control</string>
+    <string name="title_wifi_config">WiFi Configuration</string>
+
+    <!-- Scan screen -->
+    <string name="scan_devices">Scan Devices</string>
+    <string name="scanning">Scanning…</string>
+    <string name="no_devices_found">No devices found. Tap SCAN to search.</string>
+    <string name="connect">Connect</string>
+    <string name="connecting">Connecting…</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="enable_bluetooth">Please enable Bluetooth</string>
+    <string name="bt_not_supported">Bluetooth not supported on this device</string>
+    <string name="permission_required">Bluetooth permission required</string>
+    <string name="location_required">Location permission required for BT scanning</string>
+
+    <!-- Control screen -->
+    <string name="btn_wave">👋 WAVE</string>
+    <string name="btn_dance">💃 DANCE</string>
+    <string name="btn_forward">⬆ FORWARD</string>
+    <string name="btn_backward">⬇ BACKWARD</string>
+    <string name="btn_left">⬅ TURN LEFT</string>
+    <string name="btn_right">➡ TURN RIGHT</string>
+    <string name="btn_sit">🧎 SIT DOWN</string>
+    <string name="btn_stand">🧍 STAND UP</string>
+    <string name="btn_stop">🛑 STOP</string>
+    <string name="hint_speak_text">Enter text for robot to speak…</string>
+    <string name="btn_speak">🔊 SPEAK</string>
+    <string name="wifi_config">WiFi Config</string>
+    <string name="log_title">Command Log</string>
+    <string name="clear_log">Clear</string>
+    <string name="status_prefix">Status: </string>
+    <string name="battery_prefix">Battery: </string>
+
+    <!-- WiFi config screen -->
+    <string name="hint_ssid">WiFi SSID</string>
+    <string name="hint_password">Password</string>
+    <string name="send_wifi">Send to Robot</string>
+    <string name="wifi_sent">WiFi config sent!</string>
+
+    <!-- Notification -->
+    <string name="notif_channel_name">Bluetooth Connection</string>
+    <string name="notif_channel_desc">Maintains connection to Alpha Mini robot</string>
+    <string name="notif_title">AlphaMini Controller</string>
+    <string name="notif_text">Connected to robot</string>
+
+    <!-- Misc -->
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="reconnecting">Reconnecting…</string>
+</resources>
