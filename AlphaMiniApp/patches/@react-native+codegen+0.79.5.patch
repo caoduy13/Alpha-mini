@@ -1,0 +1,129 @@
+diff --git a/node_modules/@react-native/codegen/lib/parsers/typescript/components/componentsUtils.js b/node_modules/@react-native/codegen/lib/parsers/typescript/components/componentsUtils.js
+index 3ba47fe..6e2eefe 100644
+--- a/node_modules/@react-native/codegen/lib/parsers/typescript/components/componentsUtils.js
++++ b/node_modules/@react-native/codegen/lib/parsers/typescript/components/componentsUtils.js
+@@ -294,8 +294,8 @@ function getTypeAnnotationForArray(
+     return arrayType;
+   }
+   const type =
+-    extractedTypeAnnotation.elementType === 'TSTypeReference'
+-      ? extractedTypeAnnotation.elementType.typeName.name
++    extractedTypeAnnotation.type === 'TSTypeReference'
++      ? parser.getTypeAnnotationName(extractedTypeAnnotation)
+       : ((_extractedTypeAnnotat = extractedTypeAnnotation.elementType) ===
+           null || _extractedTypeAnnotat === void 0
+           ? void 0
+diff --git a/node_modules/@react-native/codegen/lib/parsers/typescript/components/extends.js b/node_modules/@react-native/codegen/lib/parsers/typescript/components/extends.js
+index 4c1f723..05f2b1a 100644
+--- a/node_modules/@react-native/codegen/lib/parsers/typescript/components/extends.js
++++ b/node_modules/@react-native/codegen/lib/parsers/typescript/components/extends.js
+@@ -12,12 +12,26 @@
+ 
+ const _require = require('../parseTopLevelType'),
+   parseTopLevelType = _require.parseTopLevelType;
++function getTypeReferenceRightmostName(typeAnnotation) {
++  if (typeAnnotation.type !== 'TSTypeReference') {
++    return undefined;
++  }
++  let typeName = typeAnnotation.typeName;
++  if (!typeName) {
++    return undefined;
++  }
++  while (typeName.type === 'TSQualifiedName') {
++    typeName = typeName.right;
++  }
++  return typeName.name;
++}
+ function isEvent(typeAnnotation) {
+   if (typeAnnotation.type !== 'TSTypeReference') {
+     return false;
+   }
+   const eventNames = new Set(['BubblingEventHandler', 'DirectEventHandler']);
+-  return eventNames.has(typeAnnotation.typeName.name);
++  const baseName = getTypeReferenceRightmostName(typeAnnotation);
++  return baseName != null && eventNames.has(baseName);
+ }
+ 
+ // $FlowFixMe[unclear-type] TODO(T108222691): Use flow-types for @babel/parser
+diff --git a/node_modules/@react-native/codegen/lib/parsers/typescript/parseTopLevelType.js b/node_modules/@react-native/codegen/lib/parsers/typescript/parseTopLevelType.js
+index 0ef998d..51a09e4 100644
+--- a/node_modules/@react-native/codegen/lib/parsers/typescript/parseTopLevelType.js
++++ b/node_modules/@react-native/codegen/lib/parsers/typescript/parseTopLevelType.js
+@@ -10,6 +10,19 @@
+ 
+ 'use strict';
+ 
++function getTsTypeReferenceRightmostName(typeReference) {
++  if (typeReference.type !== 'TSTypeReference') {
++    return undefined;
++  }
++  let typeName = typeReference.typeName;
++  if (!typeName) {
++    return undefined;
++  }
++  while (typeName.type === 'TSQualifiedName') {
++    typeName = typeName.right;
++  }
++  return typeName.name;
++}
+ function getValueFromTypes(value, types) {
+   switch (value.type) {
+     case 'TSTypeReference':
+@@ -89,9 +102,9 @@ function handleUnionAndParen(type, result, knownTypes) {
+       break;
+     }
+     case 'TSTypeReference':
+-      if (type.typeName.name === 'Readonly') {
++      if (getTsTypeReferenceRightmostName(type) === 'Readonly') {
+         handleUnionAndParen(type.typeParameters.params[0], result, knownTypes);
+-      } else if (type.typeName.name === 'WithDefault') {
++      } else if (getTsTypeReferenceRightmostName(type) === 'WithDefault') {
+         if (result.optional) {
+           throw new Error(
+             'WithDefault<> is optional and does not need to be marked as optional. Please remove the union of undefined and/or null',
+@@ -166,13 +179,13 @@ function handleIntersectionAndParen(type, result, knownTypes) {
+       break;
+     }
+     case 'TSTypeReference':
+-      if (type.typeName.name === 'Readonly') {
++      if (getTsTypeReferenceRightmostName(type) === 'Readonly') {
+         handleIntersectionAndParen(
+           type.typeParameters.params[0],
+           result,
+           knownTypes,
+         );
+-      } else if (type.typeName.name === 'WithDefault') {
++      } else if (getTsTypeReferenceRightmostName(type) === 'WithDefault') {
+         throw new Error('WithDefault<> is now allowed in intersection types.');
+       } else if (!knownTypes) {
+         result.push(type);
+diff --git a/node_modules/@react-native/codegen/lib/parsers/typescript/parser.js b/node_modules/@react-native/codegen/lib/parsers/typescript/parser.js
+index c351766..29e6865 100644
+--- a/node_modules/@react-native/codegen/lib/parsers/typescript/parser.js
++++ b/node_modules/@react-native/codegen/lib/parsers/typescript/parser.js
+@@ -100,13 +100,19 @@ class TypeScriptParser {
+     return 'TypeScript';
+   }
+   getTypeAnnotationName(typeAnnotation) {
+-    var _typeAnnotation$typeN;
+-    return typeAnnotation === null ||
++    if (
++      typeAnnotation === null ||
+       typeAnnotation === void 0 ||
+-      (_typeAnnotation$typeN = typeAnnotation.typeName) === null ||
+-      _typeAnnotation$typeN === void 0
+-      ? void 0
+-      : _typeAnnotation$typeN.name;
++      typeAnnotation.typeName === null ||
++      typeAnnotation.typeName === void 0
++    ) {
++      return void 0;
++    }
++    let typeName = typeAnnotation.typeName;
++    while (typeName.type === 'TSQualifiedName') {
++      typeName = typeName.right;
++    }
++    return typeName.name;
+   }
+   checkIfInvalidModule(typeArguments) {
+     return (

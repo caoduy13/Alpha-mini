@@ -1,0 +1,79 @@
+diff --git a/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenComponentDescriptor.h b/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenComponentDescriptor.h
+index 2389f94..79aaa71 100644
+--- a/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenComponentDescriptor.h
++++ b/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenComponentDescriptor.h
+@@ -49,11 +49,11 @@ class RNSScreenComponentDescriptor final
+     // get
+     // featureFlags.experiment.androidResetScreenShadowStateOnOrientationChange
+     // from Screen props enable the commit hook only when the developer asks to
+-    react_native_assert(
+-        dynamic_cast<const RNSScreenProps *>(
+-            screenShadowNode.getProps().get()));
+-    auto props =
+-        static_cast<const RNSScreenProps *>(screenShadowNode.getProps().get());
++    // NB: Avoid dynamic_cast<const RNSScreenProps *> — it can fail on some Android
++    // RTTI / codegen combos while Props layout is still RNSScreenProps (crash in adopt).
++    auto propsRaw = screenShadowNode.getProps().get();
++    react_native_assert(propsRaw != nullptr);
++    auto props = static_cast<const RNSScreenProps *>(propsRaw);
+ 
+     if (!commitHook_ &&
+         props->androidResetScreenShadowStateOnOrientationChangeEnabled) {
+diff --git a/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenShadowNodeCommitHook.cpp b/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenShadowNodeCommitHook.cpp
+index b0ec6ee..1bb4ae2 100644
+--- a/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenShadowNodeCommitHook.cpp
++++ b/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenShadowNodeCommitHook.cpp
+@@ -25,8 +25,7 @@ RNSScreenShadowNodeCommitHook::~RNSScreenShadowNodeCommitHook() noexcept {
+ RootShadowNode::Unshared RNSScreenShadowNodeCommitHook::shadowTreeWillCommit(
+     const facebook::react::ShadowTree &shadowTree,
+     const RootShadowNode::Shared &oldRootShadowNode,
+-    const RootShadowNode::Unshared &newRootShadowNode,
+-    const ShadowTreeCommitOptions &) noexcept {
++    const RootShadowNode::Unshared &newRootShadowNode) noexcept {
+   auto oldRootProps =
+       std::static_pointer_cast<const RootProps>(oldRootShadowNode->getProps());
+   auto newRootProps =
+diff --git a/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenShadowNodeCommitHook.h b/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenShadowNodeCommitHook.h
+index cf17047..f3f4a28 100644
+--- a/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenShadowNodeCommitHook.h
++++ b/node_modules/react-native-screens/common/cpp/react/renderer/components/rnscreens/RNSScreenShadowNodeCommitHook.h
+@@ -25,8 +25,7 @@ class RNSScreenShadowNodeCommitHook : public UIManagerCommitHook {
+   virtual RootShadowNode::Unshared shadowTreeWillCommit(
+       const ShadowTree &shadowTree,
+       const RootShadowNode::Shared &oldRootShadowNode,
+-      const RootShadowNode::Unshared &newRootShadowNode,
+-      const ShadowTreeCommitOptions & /*commitOptions*/) noexcept override;
++      const RootShadowNode::Unshared &newRootShadowNode) noexcept override;
+ 
+  private:
+   static inline bool _screenSizeChanged(
+diff --git a/node_modules/react-native-screens/src/fabric/FullWindowOverlayNativeComponent.ts b/node_modules/react-native-screens/src/fabric/FullWindowOverlayNativeComponent.ts
+index 4906480..87b2d92 100644
+--- a/node_modules/react-native-screens/src/fabric/FullWindowOverlayNativeComponent.ts
++++ b/node_modules/react-native-screens/src/fabric/FullWindowOverlayNativeComponent.ts
+@@ -1,11 +1,12 @@
+ 'use client';
+ 
+ import { codegenNativeComponent } from 'react-native';
+-import type { CodegenTypes as CT, ViewProps } from 'react-native';
++import type { ViewProps } from 'react-native';
+ 
+ // Internal export, not part of stable library API.
+ export interface NativeProps extends ViewProps {
+-  accessibilityContainerViewIsModal?: CT.WithDefault<boolean, true>;
++  // Plain boolean: codegen can mis-parse WithDefault<boolean, true> as undefined (New Arch).
++  accessibilityContainerViewIsModal?: boolean;
+ }
+ 
+ export default codegenNativeComponent<NativeProps>('RNSFullWindowOverlay', {
+diff --git a/node_modules/react-native-screens/src/fabric/gamma/SplitViewHostNativeComponent.ts b/node_modules/react-native-screens/src/fabric/gamma/SplitViewHostNativeComponent.ts
+index 25e6a31..e72361c 100644
+--- a/node_modules/react-native-screens/src/fabric/gamma/SplitViewHostNativeComponent.ts
++++ b/node_modules/react-native-screens/src/fabric/gamma/SplitViewHostNativeComponent.ts
+@@ -1,5 +1,6 @@
+ 'use client';
+ 
++import * as React from 'react';
+ import type {
+   CodegenTypes as CT,
+   ViewProps,

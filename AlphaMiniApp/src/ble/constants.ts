@@ -1,0 +1,20 @@
+export const BLE = {
+  SERVICE_UUID: '10057e66-28bd-4c3e-a030-08b4982739bc',
+  CHAR_WRITE_UUID: 'd2f9ff26-ad08-4bd3-8436-9b8f33bdea76',
+  CHAR_INDICATE_UUID: '7e0dffa2-c44f-48ac-a39e-3fce46d9aabb',
+  CLIENT_CONFIG_UUID: '00002902-0000-1000-8000-00805f9b34fb',
+  NAME_PREFIX: 'MINI_',
+  SCAN_TIMEOUT_MS: 15000,
+  CONNECT_TIMEOUT_MS: 15000,
+  RESPONSE_TIMEOUT_MS: 30000,
+  MTU_SIZE: 512,
+} as const;
+
+export const PROTOCOL = {
+  USER_ID: 'alphamini_user',
+  AES_KEY: 'ubt_alphamini_16',
+  METHOD_AUTH: 0x01,
+  METHOD_WIFI_CONFIG: 0x02,
+  SALT_ALPHABET: 'abcdefghijklmnopqrstuvwxyz0123456789',
+  SALT_LENGTH: 8,
+} as const;

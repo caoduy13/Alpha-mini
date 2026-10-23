@@ -1,0 +1,64 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 34
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = findProperty("kotlinVersion") ?: "2.1.21"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.9.2")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+/** Pin Kotlin artifacts to root kotlinVersion (prevents CameraX/transitives pulling stdlib 2.2.x vs KGP 2.1). */
+subprojects { sub ->
+    sub.configurations.configureEach {
+        resolutionStrategy {
+            def k = rootProject.ext.kotlinVersion
+            force "org.jetbrains.kotlin:kotlin-stdlib:$k"
+            force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$k"
+            force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$k"
+            force "org.jetbrains.kotlin:kotlin-reflect:$k"
+        }
+    }
+}
+
+/** Async Storage v3 — bundled Maven repo (not on Maven Central). */
+subprojects { subproject ->
+    subproject.repositories {
+        maven {
+            url "$rootDir/../node_modules/@react-native-async-storage/async-storage/android/local_repo"
+        }
+    }
+}
+
+/**
+ * New Architecture: app CMake (Fabric autolinking) must run after each library's codegen
+ * produces jni/react/renderer/components/{library}/ headers (e.g. rnscreens/EventEmitters.h).
+ * Without this, :app:buildCMakeDebug can run too early and fail with missing codegen headers.
+ */
+gradle.projectsEvaluated {
+    def app = rootProject.findProject(":app")
+    if (app != null) {
+        app.tasks.matching {
+            it.name.startsWith("configureCMake") || it.name.startsWith("buildCMake")
+        }.configureEach { cmakeTask ->
+            rootProject.subprojects.each { dep ->
+                def codegen = dep.tasks.findByName("generateCodegenArtifactsFromSchema")
+                if (codegen != null) {
+                    cmakeTask.dependsOn(codegen)
+                }
+            }
+        }
+    }
+}
