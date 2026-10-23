@@ -55,3 +55,10 @@ RobotWifiProvisioner/*-packages.txt
 *.hprof
 *.rar
 *.7z
+
+# Dependency, runtime and build output
+node_modules/
+build/
+*.key
+logs/
+build_output.txt
