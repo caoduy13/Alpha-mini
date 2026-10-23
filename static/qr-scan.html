@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Alpha Mini — Quét QR</title>
+  <style>
+    :root { --bg:#0f1419; --card:#1a2332; --text:#e7ecf3; --muted:#8b9cb3;
+            --accent:#3d8bfd; --ok:#3ecf8e; --err:#f07178; --border:#2a3544; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+           background: var(--bg); color: var(--text); line-height:1.45;
+           padding:1rem; max-width:48rem; margin-left:auto; margin-right:auto; }
+    h1 { font-size:1.25rem; margin:0 0 .5rem; }
+    p.sub { color: var(--muted); font-size:.875rem; margin:0 0 1.25rem; }
+    section { background: var(--card); border:1px solid var(--border);
+              border-radius:10px; padding:1rem; margin-bottom:1rem; }
+    h2 { font-size:.95rem; margin:0 0 .75rem; color: var(--muted); font-weight:600; }
+    button { cursor:pointer; border:1px solid var(--border); background:#243044;
+             color: var(--text); padding:.5rem .85rem; border-radius:6px; font-size:.875rem; }
+    button:hover { background:#2d3d56; border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color:#fff; }
+    button[disabled] { opacity:.5; cursor:not-allowed; }
+    .tabs { display:flex; gap:.25rem; border-bottom:1px solid var(--border);
+            margin-bottom:1rem; flex-wrap:wrap; }
+    .tabs button { border-radius:6px 6px 0 0; border-bottom:none; background:transparent; color:var(--muted); }
+    .tabs button.active { background: var(--card); border-color: var(--border); color: var(--text); }
+    .pane { display:none; } .pane.active { display:block; }
+    video, canvas, img { width:100%; max-width:480px; display:block; margin:0 auto;
+                         border-radius:8px; background:#000; }
+    canvas.hidden { display:none; }
+    .row { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.75rem; align-items:center; }
+    label.opt { display:inline-flex; gap:.4rem; align-items:center; font-size:.85rem; color:var(--muted); }
+    input[type="password"], input[type="text"] { padding:.4rem .55rem; border-radius:6px;
+            border:1px solid var(--border); background:#0d1117; color:var(--text);
+            font-size:.85rem; flex:1 1 14rem; }
+    .result { margin-top:.75rem; background:#0d1117; border:1px solid var(--border);
+              border-radius:6px; padding:.75rem; min-height:3rem; font-size:.85rem; word-break:break-word; }
+    .result .label { color: var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; }
+    .result .text { font-family: ui-monospace, Menlo, Consolas, monospace; margin-top:.25rem; white-space:pre-wrap; }
+    .result a { color: var(--accent); }
+    .pill { display:inline-block; padding:.1rem .5rem; border-radius:999px; font-size:.7rem; }
+    .pill.on { background: rgba(62,207,142,.2); color: var(--ok); }
+    .pill.off { background: rgba(240,113,120,.18); color: var(--err); }
+    .history { max-height:18rem; overflow:auto; font-size:.8rem; }
+    .history .item { padding:.4rem .5rem; border-bottom:1px solid var(--border);
+                     display:flex; flex-direction:column; gap:.2rem; }
+    .history .meta { color: var(--muted); font-size:.7rem; }
+    .history .text { font-family: ui-monospace, monospace; word-break:break-word; }
+    details.hint summary { color: var(--accent); cursor:pointer; font-size:.85rem; }
+    details.hint p, details.hint ul { font-size:.85rem; color: var(--muted); margin:.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Quét QR — Alpha Mini</h1>
+  <p class="sub">3 nguồn: webcam PC/điện thoại, camera robot, upload ảnh. Có thể đẩy nội dung vào Gemini chat.</p>
+
+  <details class="hint">
+    <summary>Yêu cầu / mẹo</summary>
+    <ul>
+      <li><b>Webcam</b> cần <b>HTTPS</b> hoặc <b>localhost</b> (browser security).</li>
+      <li><b>Camera robot</b> cần <code>ROBOT_ENABLED=true</code> và đã <code>POST /robot/connect</code>.</li>
+      <li>Nếu server có <code>ALPHAMINI_SKILL_TOKEN</code>, nhập vào ô bên dưới.</li>
+    </ul>
+  </details>
+
+  <section>
+    <h2>Tuỳ chọn</h2>
+    <div class="row">
+      <label class="opt"><input type="checkbox" id="optAutoChat" checked /> Đẩy QR vào Gemini chat (auto-chat)</label>
+      <label class="opt"><input type="checkbox" id="optSpeak" checked /> Robot đọc to (TTS)</label>
+    </div>
+    <div class="row">
+      <input type="password" id="token" placeholder="X-Alphamini-Token (nếu server bật)" autocomplete="off" />
+      <button type="button" id="saveToken">Lưu token</button>
+    </div>
+  </section>
+
+  <div class="tabs">
+    <button type="button" class="tab active" data-tab="webcam">Webcam (PC / điện thoại)</button>
+    <button type="button" class="tab" data-tab="robot">Camera robot</button>
+    <button type="button" class="tab" data-tab="upload">Upload ảnh</button>
+  </div>
+
+  <section class="pane active" id="pane-webcam">
+    <h2>Webcam <span id="webcamPill" class="pill off">chưa khởi động</span></h2>
+    <video id="webcam" playsinline muted></video>
+    <canvas id="webcamCanvas" class="hidden"></canvas>
+    <div class="row">
+      <button type="button" class="primary" id="btnStartCam">Bật webcam</button>
+      <button type="button" id="btnStopCam" disabled>Dừng</button>
+    </div>
+    <p class="sub" style="margin-top:.5rem;font-size:.8rem">
+      Khi bật, trang tự quét liên tục bằng jsQR (client-side). Tìm thấy QR → tự dừng + (nếu auto-chat bật) đẩy vào Gemini.
+    </p>
+    <div class="result" id="webcamResult"><span class="label">Kết quả</span><div class="text">—</div></div>
+  </section>
+
+  <section class="pane" id="pane-robot">
+    <h2>Camera robot</h2>
+    <img id="robotCam" src="/robot/camera/frame" alt="Camera robot" />
+    <div class="row">
+      <button type="button" id="btnRefreshFrame">Làm mới ảnh</button>
+      <button type="button" class="primary" id="btnRobotScan">Quét QR từ camera robot</button>
+    </div>
+    <div class="result" id="robotResult"><span class="label">Kết quả</span><div class="text">—</div></div>
+  </section>
+
+  <section class="pane" id="pane-upload">
+    <h2>Upload ảnh</h2>
+    <input type="file" id="fileInput" accept="image/*" />
+    <div class="row"><button type="button" class="primary" id="btnUpload" disabled>Decode</button></div>
+    <div class="result" id="uploadResult"><span class="label">Kết quả</span><div class="text">—</div></div>
+  </section>
+
+  <section>
+    <h2>Lịch sử quét</h2>
+    <div class="row" style="margin-top:0">
+      <button type="button" id="btnRefreshHistory">Làm mới</button>
+      <button type="button" id="btnClearHistory">Xoá tất cả</button>
+    </div>
+    <div class="history" id="history">—</div>
+  </section>
+
+  <script>
+    // jsQR (Apache 2.0): thử /static/jsqr.min.js trước, fallback CDN
+    (function loadJsQR() {
+      const local = document.createElement("script");
+      local.src = "/static/jsqr.min.js";
+      local.onerror = () => {
+        const cdn = document.createElement("script");
+        cdn.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
+        document.head.appendChild(cdn);
+      };
+      document.head.appendChild(local);
+    })();
+  </script>
+
+  <script>
+    const LS_TOKEN = "alphamini_skill_token";
+    const tokenEl = document.getElementById("token");
+    tokenEl.value = localStorage.getItem(LS_TOKEN) || "";
+    document.getElementById("saveToken").onclick = () => {
+      localStorage.setItem(LS_TOKEN, tokenEl.value.trim());
+      alert("Đã lưu token.");
+    };
+    function authHeaders(json = false) {
+      const h = {}; if (json) h["Content-Type"] = "application/json";
+      const t = tokenEl.value.trim(); if (t) h["X-Alphamini-Token"] = t; return h;
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    }
+    function setResult(elId, payload) {
+      const el = document.getElementById(elId);
+      if (!payload) { el.innerHTML = '<span class="label">Kết quả</span><div class="text">—</div>'; return; }
+      let body = "";
+      if (payload.ok && payload.codes && payload.codes.length) {
+        const txt = payload.codes[0].text || "";
+        const fmt = payload.codes[0].format || "QR";
+        const isUrl = /^https?:\/\//i.test(txt);
+        const linkHtml = isUrl ? `<a href="${escapeHtml(txt)}" target="_blank" rel="noopener noreferrer">Mở link</a>` : "";
+        body = `<span class="label">Kết quả (${escapeHtml(fmt)}${payload.duplicate ? " — trùng" : ""})</span>
+                <div class="text">${escapeHtml(txt)}</div>
+                <div class="row" style="margin-top:.5rem">${linkHtml}
+                  <button type="button" data-copy="${escapeHtml(txt)}">Copy</button>
+                  ${payload.fed_to_chat ? '<span class="pill on">đã gửi Gemini</span>' : ""}
+                </div>`;
+        if (payload.reply && payload.reply !== txt) {
+          body += `<div class="text" style="margin-top:.5rem;color:var(--muted);font-style:italic">${escapeHtml(payload.reply)}</div>`;
+        }
+      } else if (payload.error || payload.detail) {
+        body = `<span class="label">Lỗi</span><div class="text">${escapeHtml(payload.reply || payload.detail || payload.error)}</div>`;
+      } else {
+        body = `<span class="label">Kết quả</span><div class="text">${escapeHtml(payload.reply || "Không thấy QR.")}</div>`;
+      }
+      el.innerHTML = body;
+      el.querySelectorAll("button[data-copy]").forEach(b => {
+        b.onclick = () => navigator.clipboard.writeText(b.dataset.copy).then(
+          () => { b.textContent = "Đã copy!"; setTimeout(() => b.textContent = "Copy", 1500); },
+          () => alert("Không copy được.")
+        );
+      });
+    }
+
+    // Tabs
+    document.querySelectorAll(".tab").forEach(b => {
+      b.onclick = () => {
+        document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+        document.querySelectorAll(".pane").forEach(p => p.classList.remove("active"));
+        b.classList.add("active");
+        document.getElementById("pane-" + b.dataset.tab).classList.add("active");
+      };
+    });
+
+    // Webcam tab — jsQR continuous scan
+    const video = document.getElementById("webcam");
+    const canvas = document.getElementById("webcamCanvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    let stream = null, scanning = false, rafId = null;
+
+    document.getElementById("btnStartCam").onclick = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } }, audio: false
+        });
+        video.srcObject = stream;
+        await video.play();
+        document.getElementById("webcamPill").className = "pill on";
+        document.getElementById("webcamPill").textContent = "đang quay";
+        document.getElementById("btnStartCam").disabled = true;
+        document.getElementById("btnStopCam").disabled = false;
+        scanning = true;
+        scanLoop();
+      } catch (e) {
+        alert("Không bật được camera: " + e.message + "\nKiểm tra HTTPS / quyền browser.");
+      }
+    };
+    document.getElementById("btnStopCam").onclick = () => stopWebcam();
+    function stopWebcam() {
+      scanning = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      document.getElementById("webcamPill").className = "pill off";
+      document.getElementById("webcamPill").textContent = "đã dừng";
+      document.getElementById("btnStartCam").disabled = false;
+      document.getElementById("btnStopCam").disabled = true;
+    }
+    async function scanLoop() {
+      if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
+        rafId = requestAnimationFrame(scanLoop); return;
+      }
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      if (typeof jsQR !== "function") { rafId = requestAnimationFrame(scanLoop); return; }
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
+      if (code && code.data) {
+        scanning = false;
+        const result = { ok: true, count: 1, codes: [{ text: code.data, format: "QR_CODE" }] };
+        // Persist via /qr/decode_base64 (cũng để dedupe history phía server)
+        try {
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          const resp = await fetch("/qr/decode_base64", {
+            method: "POST", headers: authHeaders(true),
+            body: JSON.stringify({ image_b64: dataUrl, source: "pc" })
+          });
+          const j = await resp.json();
+          if (j && j.ok) Object.assign(result, j);
+        } catch (e) { /* không ảnh hưởng kết quả hiển thị */ }
+        // Auto-chat tới Gemini
+        if (document.getElementById("optAutoChat").checked) {
+          try {
+            const cresp = await fetch("/chat", {
+              method: "POST", headers: authHeaders(true),
+              body: JSON.stringify({ text: "QR Code: " + code.data,
+                                     speak: document.getElementById("optSpeak").checked })
+            });
+            const cj = await cresp.json();
+            if (cj && cj.reply) { result.reply = cj.reply; result.fed_to_chat = true; }
+          } catch (e) { result.reply = (result.reply || "") + " (Gemini error: " + e + ")"; }
+        }
+        setResult("webcamResult", result);
+        stopWebcam();
+        refreshHistory();
+        return;
+      }
+      rafId = requestAnimationFrame(scanLoop);
+    }
+
+    // Robot tab
+    const robotImg = document.getElementById("robotCam");
+    document.getElementById("btnRefreshFrame").onclick = () => {
+      robotImg.src = "/robot/camera/frame?t=" + Date.now();
+    };
+    document.getElementById("btnRobotScan").onclick = async () => {
+      const btn = document.getElementById("btnRobotScan");
+      btn.disabled = true; btn.textContent = "Đang quét...";
+      try {
+        const auto = document.getElementById("optAutoChat").checked ? "true" : "false";
+        const resp = await fetch("/robot/qr/from_camera?auto_chat=" + auto, {
+          method: "POST", headers: authHeaders()
+        });
+        const j = await resp.json();
+        setResult("robotResult", j);
+        refreshHistory();
+      } catch (e) {
+        setResult("robotResult", { error: String(e) });
+      } finally {
+        btn.disabled = false; btn.textContent = "Quét QR từ camera robot";
+      }
+    };
+
+    // Upload tab
+    const fileInput = document.getElementById("fileInput");
+    const btnUpload = document.getElementById("btnUpload");
+    fileInput.onchange = () => { btnUpload.disabled = !fileInput.files.length; };
+    btnUpload.onclick = async () => {
+      const f = fileInput.files[0]; if (!f) return;
+      const fd = new FormData(); fd.append("file", f);
+      btnUpload.disabled = true; btnUpload.textContent = "Đang decode...";
+      try {
+        const resp = await fetch("/qr/decode", { method: "POST", headers: authHeaders(), body: fd });
+        const j = await resp.json();
+        // Auto-chat nếu bật
+        if (j.ok && document.getElementById("optAutoChat").checked && j.codes && j.codes.length) {
+          try {
+            const cresp = await fetch("/chat", {
+              method: "POST", headers: authHeaders(true),
+              body: JSON.stringify({ text: "QR Code: " + j.codes[0].text,
+                                     speak: document.getElementById("optSpeak").checked })
+            });
+            const cj = await cresp.json();
+            if (cj && cj.reply) { j.reply = cj.reply; j.fed_to_chat = true; }
+          } catch (e) { /* hiển thị result gốc */ }
+        }
+        setResult("uploadResult", j);
+        refreshHistory();
+      } catch (e) {
+        setResult("uploadResult", { error: String(e) });
+      } finally {
+        btnUpload.disabled = false; btnUpload.textContent = "Decode";
+      }
+    };
+
+    // History
+    async function refreshHistory() {
+      const el = document.getElementById("history");
+      try {
+        const resp = await fetch("/qr/history?limit=50");
+        const j = await resp.json();
+        if (!j.ok || !j.items || !j.items.length) { el.textContent = "(chưa có)"; return; }
+        el.innerHTML = j.items.slice().reverse().map(it => {
+          const isUrl = /^https?:\/\//i.test(it.text);
+          const link = isUrl ? `<a href="${escapeHtml(it.text)}" target="_blank" rel="noopener">${escapeHtml(it.text)}</a>` : escapeHtml(it.text);
+          return `<div class="item">
+            <div class="meta">${escapeHtml(it.ts)} · ${escapeHtml(it.source)}${it.fed_to_chat ? ' · <span class="pill on">Gemini</span>' : ""}</div>
+            <div class="text">${link}</div>
+          </div>`;
+        }).join("");
+      } catch (e) { el.textContent = "(lỗi tải lịch sử: " + e + ")"; }
+    }
+    document.getElementById("btnRefreshHistory").onclick = refreshHistory;
+    document.getElementById("btnClearHistory").onclick = async () => {
+      if (!confirm("Xoá toàn bộ lịch sử quét?")) return;
+      await fetch("/qr/history", { method: "DELETE" });
+      refreshHistory();
+    };
+    refreshHistory();
+  </script>
+</body>
+</html>
