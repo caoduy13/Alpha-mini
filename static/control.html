@@ -149,6 +149,15 @@
   </section>
 
   <section>
+    <h2>Quét QR</h2>
+    <div class="row">
+      <button type="button" class="primary" id="btnQrRobot">Quét QR (camera robot)</button>
+      <a href="/qr/scan" target="_blank" rel="noopener" style="align-self:center;color:var(--accent)">→ Trang quét đầy đủ</a>
+    </div>
+    <pre id="qrLog" style="background:#0d1117;border:1px solid var(--border);border-radius:6px;padding:.65rem;font-size:.75rem;margin-top:.5rem;white-space:pre-wrap;word-break:break-word">—</pre>
+  </section>
+
+  <section>
     <h2>Lệnh nhanh (GET /robot/trigger)</h2>
     <div class="grid" id="triggers"></div>
     <div style="margin-top:0.75rem">
@@ -291,6 +300,15 @@
           body: JSON.stringify({ text, speak }),
         }));
       } catch (e) { log(String(e)); }
+    };
+
+    document.getElementById("btnQrRobot").onclick = async () => {
+      const out = document.getElementById("qrLog");
+      out.textContent = "Đang quét…";
+      try {
+        const r = await jfetch("/robot/qr/from_camera", { method: "POST", headers: headersPlain() });
+        out.textContent = JSON.stringify(r, null, 2);
+      } catch (e) { out.textContent = String(e); }
     };
 
     document.getElementById("btnStatus").click();

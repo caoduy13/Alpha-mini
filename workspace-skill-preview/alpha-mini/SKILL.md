@@ -93,19 +93,72 @@ curl -sS -X POST -H "X-Alphamini-Token: $TOKEN" \
   "http://localhost:8000/robot/reconnect"
 ```
 
-## Tool: qr_scan
+## Tool: qr_scan (robot camera)
 
-Scan QR using the **robot camera** (sync flow on server). Returns progress text and debug stages in JSON.
+Capture one SDK frame from the **robot camera**, decode QR/barcode (pyzbar + OpenCV fallback), optionally forward decoded text to Gemini (`auto_chat`). Same behavior as the legacy path; prefer the clearer alias when documenting tools.
 
 - **Method:** POST  
-- **Path:** `/chat/qr-scan`  
-- **Body:** none — the handler takes **no JSON body** (empty POST). Do **not** send `{"timeout_sec": ...}`; that is not a server parameter today.
+- **Paths (equivalent):**  
+  - `/robot/qr/from_camera` — preferred alias (matches `docs/PROJECT_NOTE.md`).  
+  - `/chat/qr-scan` — backward-compatible name.  
+- **Query:** optional `auto_chat` = `true` | `false`. Omit = use server env `QR_AUTO_CHAT` (default true). When true, server forwards `"QR Code: <text>"` into the Gemini chat session after a successful decode.  
+- **Body:** none (empty POST).
 
 ```bash
+curl -sS -X POST "http://localhost:8000/robot/qr/from_camera?auto_chat=true"
 curl -sS -X POST "http://localhost:8000/chat/qr-scan"
 ```
 
-(v2 Phase 2: optional `X-Alphamini-Token` is **not** applied to this route — only `/chat`, `/robot/trigger`, `/robot/reconnect`.)
+These routes do **not** require `X-Alphamini-Token` (same as `GET /status`). Protected routes when token is set remain: `POST /chat`, `GET /robot/trigger`, `POST /robot/reconnect`.
+
+**Natural language:** `POST /chat` with text like «quét qr», «scan qr» runs the same scan flow in-process (with Gemini forwarding controlled by `QR_AUTO_CHAT`); use POST endpoints above when you want a structured JSON scan result without composing Vietnamese phrases.
+
+## Tool: qr_decode (upload image)
+
+Decode QR from a **local/host image** (no robot camera). Multipart field name **`file`**.
+
+- **Method:** POST  
+- **Path:** `/qr/decode`  
+- **Body:** `multipart/form-data` with `file=@image.jpg`  
+- **No** skill token required.
+
+```bash
+curl -sS -F "file=@qr.jpg" "http://localhost:8000/qr/decode"
+```
+
+## Tool: qr_decode_base64
+
+Decode QR from **base64** image (e.g. browser canvas). JSON body.
+
+- **Method:** POST  
+- **Path:** `/qr/decode_base64`  
+- **Body (JSON):** `{"image_b64": "<data URL or raw base64>", "source": "pc"}` (`source` optional label for server QR history).
+
+```bash
+curl -sS -H "Content-Type: application/json" \
+  -d "{\"image_b64\":\"data:image/jpeg;base64,/9j/4AAQ...\",\"source\":\"openclaw\"}" \
+  "http://localhost:8000/qr/decode_base64"
+```
+
+## Tool: qr_history
+
+List or clear persisted QR scan history (JSONL on server; see env `QR_HISTORY_PATH`).
+
+- **Method:** GET — `/qr/history?limit=50`  
+- **Method:** DELETE — `/qr/history` (clear file + in-memory cache)  
+- **No** skill token required.
+
+```bash
+curl -sS "http://localhost:8000/qr/history?limit=50"
+curl -sS -X DELETE "http://localhost:8000/qr/history"
+```
+
+## Tool: qr_scan_page (human UI)
+
+Browser page with webcam, robot camera tab, and upload — **not** ideal as an automated HTTP “tool” unless headless; document so agents know users can open it.
+
+- **Method:** GET  
+- **Path:** `/qr/scan`
 
 ## Tool: camera_frame
 
@@ -127,6 +180,6 @@ curl -sS -o frame.jpg "http://localhost:8000/robot/camera/frame"
 - Keep user text for TTS reasonable; very long replies may be truncated server-side.
 - If `chat` indicates robot offline, report clearly and suggest Wi-Fi / `ROBOT_IP` / `reconnect`; do not silently retry in a tight loop.
 
-## Related: QR decode (upload)
+## Related docs
 
-- `POST /qr/decode` (multipart `image`) and `POST /qr/decode_base64` use the **existing** `X-API-Key` / `require_api_key` flow — **not** the same as `X-Alphamini-Token`. See `config.py` / `.env` for `AM_SHARED_SECRET` if you call these from a tool.
+- Server QR behavior and env (`QR_AUTO_CHAT`, history path, dedupe): `docs/QR_FEATURE.md`, `docs/PROJECT_NOTE.md`.

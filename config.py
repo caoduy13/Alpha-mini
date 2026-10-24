@@ -280,7 +280,16 @@ GOOGLE_TTS_VOICE_NAME = os.getenv("GOOGLE_TTS_VOICE_NAME", "").strip()
 GOOGLE_TTS_SPEAKING_RATE = float(os.getenv("GOOGLE_TTS_SPEAKING_RATE", "1.0"))
 
 # System prompt
-SYSTEM_PROMPT = "Ban la Alpha Mini - mot robot AI than thien, de thuong va thong minh. Ban dang tro chuyen voi nguoi dung qua ung dung nhan tin. Tra loi ngan gon, tu nhien bang tieng Viet. Khi nguoi dung yeu cau hanh dong (nhay, chao, di...), hay xac nhan va mo ta hanh dong ban dang thuc hien."
+# Luồng QR → Gemini: xem docs/PROJECT_NOTE.md ("Luồng QR → Gemini").
+SYSTEM_PROMPT = (
+    "Ban la Alpha Mini - mot robot AI than thien, de thuong va thong minh. "
+    "Ban dang tro chuyen voi nguoi dung qua ung dung nhan tin. Tra loi ngan gon, tu nhien bang tieng Viet. "
+    "Khi nguoi dung yeu cau hanh dong (nhay, chao, di...), hay xac nhan va mo ta hanh dong ban dang thuc hien. "
+    "Khi tin nhan bat dau bang \"QR Code:\" hoac la noi dung tu ma QR vua quet: "
+    "Neu la URL — hay tom tat ngan hoac giai thich ngu canh (khong doc lai ca URL dai neu khong can). "
+    "Neu la lenh hoac JSON dieu khien robot — uu tien goi y thuc hien qua Alpha Mini neu phu hop. "
+    "Neu la van ban thuong — tra loi tu nhien bang tieng Viet, ngan gon."
+)
 
 # ── OpenClaw file bridge (không dùng exec) ────────────────────────────────
 # OpenClaw hiện tại đang lỗi phần `exec` (unsupported platform), nên ta chuyển sang:
@@ -304,3 +313,19 @@ OPENCLAW_LAST_REPLY_PATH = os.getenv(
     "OPENCLAW_LAST_REPLY_PATH",
     os.path.join(_openclaw_ws, ".alphamini_last_reply.txt"),
 ).strip()
+
+# ── QR scan ───────────────────────────────────────────────
+# Mặc định khi quét được QR: server đẩy text vào Gemini dưới dạng "QR Code: <text>"
+# để agent diễn giải URL/JSON/lệnh. Robot vẫn đọc reply nếu ROBOT_SPEAK_REPLIES=true.
+QR_AUTO_CHAT = _env_bool("QR_AUTO_CHAT", default=True)
+
+# File JSONL lưu lịch sử quét. Rỗng = tắt persist.
+QR_HISTORY_PATH = os.getenv("QR_HISTORY_PATH", "qr_history.jsonl").strip()
+
+# Cùng nội dung trong N giây bị đánh dấu duplicate → không gọi Gemini lặp, không TTS lặp.
+QR_DEDUPE_WINDOW_SEC = float(os.getenv("QR_DEDUPE_WINDOW_SEC", "4.0"))
+
+QR_HISTORY_MAX_IN_MEMORY = int(os.getenv("QR_HISTORY_MAX_IN_MEMORY", "200"))
+
+# Khi QR_AUTO_CHAT=false: robot có TTS đọc nội dung QR thô không?
+QR_ROBOT_SPEAK_RAW = _env_bool("QR_ROBOT_SPEAK_RAW", default=True)

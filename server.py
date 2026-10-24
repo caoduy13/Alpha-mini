@@ -23,6 +23,7 @@ from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import config
+import qr_module
 
 # ── Logging ──────────────────────────────────────────────
 logging.basicConfig(
@@ -845,45 +846,42 @@ async def _robot_capture_image_bytes() -> tuple[bytes | None, dict | None]:
 
 
 def _decode_qr_codes_from_image_bytes(image_bytes: bytes) -> list[dict]:
-    """
-    Decode QR content from JPEG/PNG bytes using OpenCV QRCodeDetector.
-    Returns list[{text, format}] (empty list if nothing found).
-    """
-    if not image_bytes:
-        return []
+    """Delegate sang qr_module (pyzbar primary, cv2 fallback)."""
+    return qr_module.decode_qr_codes(image_bytes)
+
+
+def _resolve_qr_history_path() -> str:
+    raw = (getattr(config, "QR_HISTORY_PATH", "") or "").strip()
+    if not raw:
+        return ""
+    p = Path(raw)
+    if not p.is_absolute():
+        p = Path(__file__).resolve().parent / p
+    return str(p)
+
+
+_QR_HISTORY: qr_module.QRHistory | None = None
+_qr_hist_path = _resolve_qr_history_path()
+if _qr_hist_path:
     try:
-        import cv2  # type: ignore
-        import numpy as np  # type: ignore
+        _QR_HISTORY = qr_module.QRHistory(
+            _qr_hist_path,
+            dedupe_window_sec=getattr(config, "QR_DEDUPE_WINDOW_SEC", 4.0),
+            max_in_memory=getattr(config, "QR_HISTORY_MAX_IN_MEMORY", 200),
+        )
+        _pyzbar_ok, _cv2_ok = qr_module.QR_DECODER_AVAILABLE
+        log.info(
+            "QR ready: history=%s pyzbar=%s cv2=%s auto_chat=%s",
+            _qr_hist_path,
+            _pyzbar_ok,
+            _cv2_ok,
+            getattr(config, "QR_AUTO_CHAT", True),
+        )
     except Exception as e:
-        log.warning("QR decode deps missing: %s", e)
-        return []
-
-    arr = np.frombuffer(image_bytes, dtype=np.uint8)
-    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if frame is None:
-        return []
-
-    detector = cv2.QRCodeDetector()
-    codes: list[dict] = []
-    try:
-        ok, decoded_info, _points, _ = detector.detectAndDecodeMulti(frame)
-        if ok and decoded_info:
-            for txt in decoded_info:
-                t = (txt or "").strip()
-                if t:
-                    codes.append({"text": t, "format": "QR_CODE"})
-    except Exception:
-        pass
-
-    if not codes:
-        try:
-            txt, _points, _ = detector.detectAndDecode(frame)
-            t = (txt or "").strip()
-            if t:
-                codes.append({"text": t, "format": "QR_CODE"})
-        except Exception:
-            pass
-    return codes
+        log.warning("QR history init failed: %s", e)
+        _QR_HISTORY = None
+else:
+    log.info("QR history: tắt persist (QR_HISTORY_PATH rỗng)")
 
 
 def build_quick_action_reply(text_norm: str, raw_text: str = "") -> str:
@@ -910,6 +908,8 @@ def build_quick_action_reply(text_norm: str, raw_text: str = "") -> str:
         return "OK, Alpha Mini se ngoi roi dung day."
     if act == "stop":
         return "OK, Alpha Mini dang dung lai."
+    if act == "qr_scan":
+        return "OK, Alpha Mini dang quet QR..."
     if act == "greet":
         return "Xin chao! Alpha Mini dang chao ban."
     if act == "speak_text":
@@ -1019,6 +1019,7 @@ _NOI_PHRASE_MOTION_ACTIONS = frozenset(
         "sit_down",
         "sit_then_stand",
         "stand",
+        "qr_scan",
     }
 )
 
@@ -1030,6 +1031,27 @@ def _classify_keyword_action(
     Phân loại hành động chỉ bằng chuỗi đã normalize_text (không dấu, đ->d).
     Thứ tự if quan trọng: cụm dài / từ chối trước.
     """
+    # --- QR scan: ưu tiên cao vì cụm "quet qr" / "doc ma" rất đặc trưng ---
+    # Không kích hoạt với payload chuyển tiếp Gemini dạng "QR Code: ..." (normalize → "qr code:").
+    if (not t.startswith("qr code:")) and _kw_any(
+        t,
+        (
+            "quet qr",
+            "quet ma qr",
+            "quet ma vach",
+            "scan qr",
+            "scan ma",
+            "doc qr",
+            "doc ma qr",
+            "doc ma vach",
+            "nhin qr",
+            "xem qr",
+            "qr code",
+            "qrcode",
+            "barcode",
+        ),
+    ):
+        return "qr_scan"
     # --- từ chối / ngoại lệ (không chặn câu lịch sự có lệnh robot: «xin lỗi, bạn ngồi giúp») ---
     if _kw_any(
         t,
@@ -1537,6 +1559,7 @@ _INTENT_ACTIONS = frozenset({
     "sit_down",
     "sit_then_stand",
     "stand",
+    "qr_scan",
 })
 
 
@@ -1589,7 +1612,7 @@ def llm_robot_intent(user_text: str) -> dict | None:
     instruction = (
         "Ban la bo loc lenh dieu khien robot. Chi tra ve JSON hop le, khong markdown, khong giai thich.\n"
         'Bat buoc co 3 key: "action", "behavior", "audio_url".\n'
-        '"action" chi mot trong: none, dance, mixi_show, quy_khoi_show, o_i_i_show, turn_left, turn_right, walk_forward, stop, greet, speak_text, play_audio, sit_down, sit_then_stand, stand.\n'
+        '"action" chi mot trong: none, dance, mixi_show, quy_khoi_show, o_i_i_show, turn_left, turn_right, walk_forward, stop, greet, speak_text, play_audio, sit_down, sit_then_stand, stand, qr_scan.\n'
         '"behavior": string hoac null (ma behavior robot, vi du dance_0004).\n'
         '"audio_url": string URL http(s) hoac null.\n'
         '"speak_text": string cum robot can noi (bat buoc khi action la speak_text), hoac null.\n\n'
@@ -1606,6 +1629,7 @@ def llm_robot_intent(user_text: str) -> dict | None:
         "- sit_down: ngoi, ngoi xuong, cui, squat.\n"
         "- sit_then_stand: ngoi rồi dung day/dung len.\n"
         "- stand: dung day, dung len, thang nguoi, day len.\n"
+        "- qr_scan: quet qr, scan qr, doc ma qr/vach, xem qr code.\n"
         "- none: hoi dap tinh cam, khong yeu cau co the.\n\n"
         "Cau nguoi dung (nguyen van):\n"
     )
@@ -1883,6 +1907,11 @@ async def execute_intent_plan(plan: dict, original_text: str):
                     robot.pose_state = None
                     await robot.stand_up()
                 log.info("🤖 intent: stand")
+            elif action == "qr_scan":
+                # Logic chính ở process_chat_message + _perform_qr_scan_flow để đẩy
+                # text vào Gemini và trả reply trong cùng turn. Đây chỉ là no-op
+                # tránh "unknown intent action" log khi gọi từ background path.
+                log.info("🤖 intent: qr_scan (xử lý trong process_chat_message)")
             else:
                 log.warning(f"unknown intent action: {action}")
         except asyncio.CancelledError:
@@ -2784,6 +2813,158 @@ async def _robot_bg(coro):
         log.exception("Robot task lỗi (nền): %s", e)
 
 
+# ── QR flow helper (shared bởi /chat/qr-scan, /robot/qr/from_camera, intent qr_scan) ──
+async def _perform_qr_scan_flow(
+    *,
+    source: str = "robot",
+    auto_chat: bool | None = None,
+    speak_raw: bool | None = None,
+    request: Request | None = None,
+    capture_timeout_sec: float = 10.0,
+) -> dict:
+    """
+    Chụp camera robot → decode QR → (tuỳ chọn) đẩy text vào Gemini → robot đọc reply.
+    Trả: {ok, count, codes, duplicate, reply, fed_to_chat, history_entry, error, stages, qr_text?}
+    """
+    stages: list[str] = []
+    eff_auto_chat = bool(getattr(config, "QR_AUTO_CHAT", True)) if auto_chat is None else bool(auto_chat)
+    eff_speak_raw = bool(getattr(config, "QR_ROBOT_SPEAK_RAW", True)) if speak_raw is None else bool(speak_raw)
+
+    stages.append("capture:start")
+    try:
+        raw_img, err = await asyncio.wait_for(
+            _robot_capture_image_bytes(), timeout=capture_timeout_sec
+        )
+    except asyncio.TimeoutError:
+        return {
+            "ok": False,
+            "count": 0,
+            "codes": [],
+            "duplicate": False,
+            "reply": "Camera robot timeout. Kiểm tra Wi-Fi và POST /robot/reconnect.",
+            "fed_to_chat": False,
+            "history_entry": None,
+            "error": "capture_timeout",
+            "stages": stages + ["capture:timeout"],
+        }
+    if not raw_img:
+        kind = (err or {}).get("kind") or "robot_camera_unavailable"
+        stages.append(f"capture:fail:{kind}")
+        return {
+            "ok": False,
+            "count": 0,
+            "codes": [],
+            "duplicate": False,
+            "reply": f"Không lấy được ảnh ({kind}). Kiểm tra ROBOT_ENABLED và /status.",
+            "fed_to_chat": False,
+            "history_entry": None,
+            "error": kind,
+            "stages": stages,
+        }
+    stages.append(f"capture:ok:{len(raw_img)}b")
+
+    codes = _decode_qr_codes_from_image_bytes(raw_img)
+    stages.append(f"decode:{len(codes)}")
+    if not codes:
+        return {
+            "ok": False,
+            "count": 0,
+            "codes": [],
+            "duplicate": False,
+            "reply": "Chưa thấy mã QR. Đưa mã vào giữa khung và thử lại.",
+            "fed_to_chat": False,
+            "history_entry": None,
+            "error": "no_qr_in_frame",
+            "stages": stages,
+        }
+
+    first_text = (codes[0].get("text") or "").strip()
+    first_fmt = (codes[0].get("format") or "QR_CODE").strip() or "QR_CODE"
+
+    is_dup = bool(_QR_HISTORY and _QR_HISTORY.is_duplicate(first_text))
+    if is_dup:
+        stages.append("dedupe:hit")
+        return {
+            "ok": True,
+            "count": len(codes),
+            "codes": codes,
+            "duplicate": True,
+            "reply": f"(Mã trùng vừa đọc) {qr_module.short_for_speech(first_text)}",
+            "fed_to_chat": False,
+            "history_entry": None,
+            "error": None,
+            "stages": stages,
+            "qr_text": first_text,
+        }
+
+    history_entry = None
+    if _QR_HISTORY is not None:
+        history_entry = _QR_HISTORY.append(
+            source=source,
+            text=first_text,
+            format=first_fmt,
+            fed_to_chat=eff_auto_chat,
+        )
+        stages.append("history:saved")
+
+    if eff_auto_chat and request is not None:
+        prompt_text = f"QR Code: {first_text}"
+        stages.append("chat:forward")
+        try:
+            chat_resp = await process_chat_message(prompt_text, request, speak=True, transcript=None)
+            reply = chat_resp.reply if hasattr(chat_resp, "reply") else str(chat_resp)
+            stages.append("chat:ok")
+            return {
+                "ok": True,
+                "count": len(codes),
+                "codes": codes,
+                "duplicate": False,
+                "reply": reply,
+                "fed_to_chat": True,
+                "history_entry": history_entry,
+                "error": None,
+                "stages": stages,
+                "qr_text": first_text,
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.warning("QR auto_chat: process_chat_message failed: %s", e)
+            stages.append(f"chat:fail:{type(e).__name__}")
+            return {
+                "ok": True,
+                "count": len(codes),
+                "codes": codes,
+                "duplicate": False,
+                "reply": f"Da doc duoc QR: {qr_module.short_for_speech(first_text)} (Gemini error: {e})",
+                "fed_to_chat": False,
+                "history_entry": history_entry,
+                "error": "chat_forward_failed",
+                "stages": stages,
+                "qr_text": first_text,
+            }
+
+    if eff_speak_raw and getattr(config, "ROBOT_SPEAK_REPLIES", True):
+        try:
+            await robot_say(f"Da doc duoc ma. {qr_module.short_for_speech(first_text)}")
+            stages.append("speak:raw")
+        except Exception as e:
+            log.warning("QR speak_raw failed: %s", e)
+
+    return {
+        "ok": True,
+        "count": len(codes),
+        "codes": codes,
+        "duplicate": False,
+        "reply": f"Da doc duoc QR: {qr_module.short_for_speech(first_text)}",
+        "fed_to_chat": False,
+        "history_entry": history_entry,
+        "error": None,
+        "stages": stages,
+        "qr_text": first_text,
+    }
+
+
 def _mime_for_audio_upload(filename: str | None, content_type: str | None) -> str:
     ct = (content_type or "").split(";")[0].strip().lower()
     if ct.startswith("audio/"):
@@ -3005,9 +3186,6 @@ def _load_robot_control_html() -> str:
     )
 
 
-ROBOT_CONTROL_HTML = _load_robot_control_html()
-
-
 def _cors_allow_origins() -> list[str]:
     raw = (getattr(config, "CORS_ALLOW_ORIGINS", "") or "").strip()
     if raw:
@@ -3058,6 +3236,11 @@ class ChatResponse(BaseModel):
     transcript: str | None = None
 
 
+class _QrDecodeBase64Req(BaseModel):
+    image_b64: str = Field(..., description="Ảnh JPEG/PNG dạng base64 (có thể có tiền tố data:image/...;base64,)")
+    source: str | None = Field(default="pc", description="Nhãn cho history: pc|upload|...")
+
+
 class UsbWifiProvisionRequest(BaseModel):
     ssid: str
     password: str = ""
@@ -3078,6 +3261,7 @@ _SYNC_EXECUTE_ACTIONS = frozenset({
     "sit_then_stand",
     "stand",
     "o_i_i_show",
+    "qr_scan",
 })
 
 # ── Routes ────────────────────────────────────────────────
@@ -3093,6 +3277,11 @@ async def root():
             "robot_camera_frame_jpeg": "GET /robot/camera/frame",
             "robot_diagnose_tcp": "GET /robot/diagnose — thử TCP tới ROBOT_IP:ROBOT_PORT (không cần SDK đã connect)",
             "robot_music_diagnostics": "GET /robot/music — liệt kê MP3 + URL robot dùng; ?probe=1 để thử tải (chẩn đoán LAN/TLS)",
+            "qr_scan_page": "GET /qr/scan — trang quét QR (webcam PC + camera robot + upload)",
+            "qr_decode_upload": "POST /qr/decode — multipart `file=` ảnh, decode QR/barcode",
+            "qr_decode_base64": "POST /qr/decode_base64 — JSON {image_b64}",
+            "qr_from_robot": "POST /robot/qr/from_camera — chụp camera robot rồi decode",
+            "qr_history": "GET /qr/history?limit=50 — lịch sử quét; DELETE để xoá",
         },
     }
 
@@ -3102,7 +3291,7 @@ async def root():
 async def robot_control_page():
     """Trang web: trạng thái, camera, lệnh /robot/trigger, chat (cần token nếu server bật ALPHAMINI_SKILL_TOKEN)."""
     return HTMLResponse(
-        ROBOT_CONTROL_HTML,
+        _load_robot_control_html(),
         headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
     )
 
@@ -3957,6 +4146,9 @@ async def robot_trigger(
 
             await run_quy_khoi_show()
             return {"ok": True, "action": "quy_khoi_show"}
+        if c in ("qr", "qr_scan", "qrscan", "scan", "quet qr", "scan qr", "doc qr"):
+            scan = await _perform_qr_scan_flow(source="robot", auto_chat=False, request=request)
+            return {"ok": scan.get("ok", False), "action": "qr_scan", **scan}
         if c in ("dance", "nhay", "mua"):
             b = behavior.strip() if behavior else None
             await robot.dance(b)
@@ -4032,6 +4224,75 @@ async def process_chat_message(
     plan = await plan_robot_intent(text)
     action_detected = plan is not None
     log.info(f"🧠 Robot plan: {plan}")
+
+    # ── QR scan: short-circuit để chụp + decode + (auto-)forward Gemini trong cùng turn
+    if plan and plan.get("action") == "qr_scan":
+        await ensure_robot_for_commands()
+        await _cancel_pending_robot_intent_task()
+        log.info("🔍 chat → qr_scan flow (auto_chat=%s)", getattr(config, "QR_AUTO_CHAT", True))
+        try:
+            scan = await _perform_qr_scan_flow(
+                source="robot",
+                auto_chat=False,
+                speak_raw=False,
+                request=request,
+                capture_timeout_sec=10.0,
+            )
+        except Exception as e:
+            log.exception("qr_scan flow error: %s", e)
+            return ChatResponse(
+                reply=f"Loi khi quet QR: {e}",
+                robot_online=robot_sdk_session_ok(),
+                action_detected=True,
+                robot_action_ok=False,
+                robot_action_error=str(e),
+                transcript=transcript,
+            )
+
+        if not scan.get("ok"):
+            return ChatResponse(
+                reply=scan.get("reply") or "Khong quet duoc QR.",
+                robot_online=robot_sdk_session_ok(),
+                action_detected=True,
+                robot_action_ok=False,
+                robot_action_error=scan.get("error"),
+                transcript=transcript,
+            )
+
+        qr_text = (scan.get("qr_text") or "").strip()
+        if getattr(config, "QR_AUTO_CHAT", True) and qr_text and not scan.get("duplicate"):
+            forward_text = f"QR Code: {qr_text}"
+            log.info("🔍 forwarding QR to Gemini: %s", forward_text[:120])
+            try:
+                gemini_resp = await asyncio.wait_for(
+                    asyncio.to_thread(chat_session.send_message, forward_text),
+                    timeout=12,
+                )
+                gem_reply = (gemini_resp.text or "").strip()
+            except Exception as e:
+                log.warning("QR Gemini forward failed: %s", e)
+                gem_reply = ""
+            if gem_reply:
+                if scan.get("history_entry") and _QR_HISTORY is not None:
+                    scan["history_entry"]["fed_to_chat"] = True
+                final_reply = f"Da doc duoc QR: {qr_module.short_for_speech(qr_text)}\n\n{gem_reply}"
+            else:
+                final_reply = scan.get("reply") or f"Da doc duoc QR: {qr_module.short_for_speech(qr_text)}"
+        else:
+            final_reply = scan.get("reply") or "Da quet QR."
+
+        if speak and config.ROBOT_SPEAK_REPLIES:
+            tts = qr_module.short_for_speech(qr_text or final_reply, max_len=200)
+            asyncio.create_task(_robot_bg(robot_say(f"Da doc duoc ma. {tts}")))
+
+        return ChatResponse(
+            reply=final_reply,
+            robot_online=robot_sdk_session_ok(),
+            action_detected=True,
+            robot_action_ok=True,
+            robot_action_error=None,
+            transcript=transcript,
+        )
 
     text_norm = normalize_text(text)
     # Câu múa võ / O I I + na na: ưu tiên câu trả lời nhanh (tránh Gemini).
@@ -4176,31 +4437,148 @@ async def chat(req: ChatRequest, request: Request):
 
 
 @app.post("/chat/qr-scan")
-async def chat_qr_scan():
+async def chat_qr_scan(request: Request, auto_chat: bool | None = Query(default=None)):
     """
-    Chụp một frame từ camera robot, decode QR rồi trả kết quả ngắn gọn cho app.
+    Chụp 1 frame camera robot → decode QR → trả kết quả.
+    auto_chat: None=theo config QR_AUTO_CHAT (default true), true=đẩy Gemini, false=trả thô.
     """
-    try:
-        raw_img, err = await asyncio.wait_for(_robot_capture_image_bytes(), timeout=10.0)
-    except TimeoutError:
-        raise HTTPException(status_code=504, detail="Robot camera timeout. Kiem tra ket noi robot/IP roi thu lai.")
-    if not raw_img:
-        raise HTTPException(status_code=503, detail=(err or {}).get("kind") or "robot_camera_unavailable")
-    codes = _decode_qr_codes_from_image_bytes(raw_img)
+    scan = await _perform_qr_scan_flow(source="robot", auto_chat=auto_chat, request=request)
+    if not scan.get("ok"):
+        if scan.get("error") in (
+            "capture_timeout",
+            "robot_offline",
+            "robot_disabled",
+            "robot_camera_unavailable",
+        ):
+            raise HTTPException(status_code=503, detail=scan.get("reply") or "QR scan failed")
+        if scan.get("error") == "no_qr_in_frame":
+            return scan  # 200 OK, ok=False (giống hành vi cũ)
+        raise HTTPException(status_code=502, detail=scan.get("reply") or scan.get("error") or "QR scan failed")
+    return scan
+
+
+@app.post("/robot/qr/from_camera")
+async def robot_qr_from_camera(request: Request, auto_chat: bool | None = Query(default=None)):
+    """Alias rõ nghĩa cho /chat/qr-scan — khớp docs/PROJECT_NOTE.md."""
+    return await chat_qr_scan(request, auto_chat=auto_chat)
+
+
+@app.post("/qr/decode")
+async def qr_decode_upload(file: UploadFile = File(..., description="JPEG/PNG ảnh chứa QR")):
+    """Decode QR từ ảnh upload (multipart, field `file`). Không đụng tới robot."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="File rỗng")
+    if len(data) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Ảnh quá lớn (>12MB)")
+
+    codes = _decode_qr_codes_from_image_bytes(data)
+    pyzbar_ok, cv2_ok = qr_module.QR_DECODER_AVAILABLE
     if not codes:
         return {
             "ok": False,
             "count": 0,
             "codes": [],
-            "reply": "Chua thay ma QR. Hay canh lai camera robot va thu lai.",
+            "decoder": {"pyzbar": pyzbar_ok, "cv2": cv2_ok},
+            "history_entry": None,
+            "reply": "Khong tim thay QR trong anh.",
         }
+
     first_text = (codes[0].get("text") or "").strip()
+    history_entry = None
+    if _QR_HISTORY is not None and not _QR_HISTORY.is_duplicate(first_text):
+        history_entry = _QR_HISTORY.append(
+            source="upload",
+            text=first_text,
+            format=(codes[0].get("format") or "QR_CODE"),
+            fed_to_chat=False,
+        )
     return {
         "ok": True,
         "count": len(codes),
         "codes": codes,
-        "reply": f"Da doc duoc QR: {first_text[:160]}",
+        "decoder": {"pyzbar": pyzbar_ok, "cv2": cv2_ok},
+        "history_entry": history_entry,
+        "reply": f"Da doc duoc QR: {qr_module.short_for_speech(first_text)}",
     }
+
+
+@app.post("/qr/decode_base64")
+async def qr_decode_base64(req: _QrDecodeBase64Req):
+    """Decode QR từ ảnh base64 (browser canvas → JSON)."""
+    raw = (req.image_b64 or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="image_b64 rỗng")
+    if raw.startswith("data:") and ";base64," in raw:
+        raw = raw.split(";base64,", 1)[1]
+    try:
+        data = base64.b64decode(raw, validate=False)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"base64 không hợp lệ: {e}")
+    if len(data) < 64:
+        raise HTTPException(status_code=400, detail="Ảnh quá nhỏ")
+    if len(data) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Ảnh quá lớn (>12MB)")
+
+    codes = _decode_qr_codes_from_image_bytes(data)
+    pyzbar_ok, cv2_ok = qr_module.QR_DECODER_AVAILABLE
+    if not codes:
+        return {
+            "ok": False,
+            "count": 0,
+            "codes": [],
+            "decoder": {"pyzbar": pyzbar_ok, "cv2": cv2_ok},
+            "history_entry": None,
+        }
+
+    first_text = (codes[0].get("text") or "").strip()
+    src = (req.source or "pc").strip() or "pc"
+    history_entry = None
+    if _QR_HISTORY is not None and not _QR_HISTORY.is_duplicate(first_text):
+        history_entry = _QR_HISTORY.append(
+            source=src,
+            text=first_text,
+            format=(codes[0].get("format") or "QR_CODE"),
+            fed_to_chat=False,
+        )
+    return {
+        "ok": True,
+        "count": len(codes),
+        "codes": codes,
+        "decoder": {"pyzbar": pyzbar_ok, "cv2": cv2_ok},
+        "history_entry": history_entry,
+    }
+
+
+@app.get("/qr/history")
+async def qr_history_list(limit: int = Query(default=50, ge=1, le=500)):
+    if _QR_HISTORY is None:
+        return {"ok": False, "items": [], "note": "QR_HISTORY_PATH rỗng — persist tắt."}
+    items = _QR_HISTORY.list(limit=limit)
+    return {"ok": True, "count": len(items), "items": items}
+
+
+@app.delete("/qr/history")
+async def qr_history_clear():
+    if _QR_HISTORY is None:
+        return {"ok": True, "cleared": 0, "note": "không có history để xoá"}
+    n = _QR_HISTORY.clear()
+    return {"ok": True, "cleared": n}
+
+
+@app.get("/qr/scan", response_class=HTMLResponse)
+async def qr_scan_page():
+    """Trang quét QR: 3 tab (webcam PC, camera robot, upload)."""
+    path = Path(__file__).resolve().parent / "static" / "qr-scan.html"
+    if not path.is_file():
+        return HTMLResponse(
+            "<!DOCTYPE html><html><body><p>Không tìm thấy <code>static/qr-scan.html</code>.</p></body></html>",
+            status_code=404,
+        )
+    return HTMLResponse(
+        path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
 
 
 @app.post("/voice/chat", response_model=ChatResponse)
