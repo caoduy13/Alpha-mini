@@ -6,15 +6,10 @@ export const BLE = {
   NAME_PREFIX: 'MINI_',
   SCAN_TIMEOUT_MS: 15000,
   CONNECT_TIMEOUT_MS: 15000,
-  RESPONSE_TIMEOUT_MS: 30000,
+  HANDSHAKE_TIMEOUT_MS: 10000,
+  /** Wait for {"co":104} after {"co":4}; continue without it (co=2 does not depend on it). */
+  READY_TIMEOUT_MS: 10000,
+  /** Robot's own connect timer is 60 s, then it checks Internet access (docs/ble-protocol.md §13.3). */
+  RESPONSE_TIMEOUT_MS: 90000,
   MTU_SIZE: 512,
-} as const;
-
-export const PROTOCOL = {
-  USER_ID: 'alphamini_user',
-  AES_KEY: 'ubt_alphamini_16',
-  METHOD_AUTH: 0x01,
-  METHOD_WIFI_CONFIG: 0x02,
-  SALT_ALPHABET: 'abcdefghijklmnopqrstuvwxyz0123456789',
-  SALT_LENGTH: 8,
 } as const;

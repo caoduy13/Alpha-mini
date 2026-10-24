@@ -34,7 +34,10 @@ export function useBleProvisioning() {
         pushLog(ev.message);
       }
       if (ev.type === 'response') {
-        pushLog('response received; see [BLE-DIAG] redacted frame-bytes');
+        const wifi = ev.wifi
+          ? ` co=${ev.wifi.co}${ev.wifi.ec !== undefined ? ` ec=${ev.wifi.ec}` : ''}`
+          : '';
+        pushLog(`robot command=${ev.commandId}${wifi}; see [BLE-DIAG] redacted frame-bytes`);
       }
       if (ev.type === 'error') {
         setError(ev.message);

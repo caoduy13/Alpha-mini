@@ -1,13 +1,29 @@
-import { bleDiag, bleErrorFields, describeDiagnosticFrame, maskedDeviceId, rememberDiagnosticSecrets } from './diagnostics';
+import { bleDiag, bleErrorFields, maskedDeviceId, rememberDiagnosticSecrets } from './diagnostics';
 import { BleManager, Device, Subscription } from 'react-native-ble-plx';
 import { BLE } from './constants';
 import { bytesToBase64, base64ToBytes } from './encoding';
-import { buildAuthPacket, buildWifiConfigPacket } from './protocol';
 import {
-  extractWifiIp,
-  isAuthOk,
-  tryParseResponse,
-} from './responseParse';
+  CMD,
+  FrameReassembler,
+  type MiniMessage,
+  buildHandshakeFrame,
+  buildWifiCommandFrame,
+  decodeFrame,
+  decodeHandshakeResponse,
+  decodeWifiResponse,
+  fragmentFrame,
+  randomGroupId,
+} from './codec';
+import {
+  MESSAGES,
+  WIFI_CO,
+  type WifiNotification,
+  parseWifiNotification,
+  quitNetworkConfigJson,
+  startNetworkConfigJson,
+  wifiConfigJson,
+  wifiErrorMessage,
+} from './wifi';
 
 export type BleStage =
   | 'idle'
@@ -15,7 +31,7 @@ export type BleStage =
   | 'connecting'
   | 'discovering'
   | 'enabling-indication'
-  | 'authenticating'
+  | 'handshaking'
   | 'sending-wifi'
   | 'waiting-response'
   | 'success'
@@ -28,12 +44,31 @@ export type BleEvent =
       device: { id: string; name: string; rssi: number };
     }
   | { type: 'log'; message: string }
-  | { type: 'response'; data: Uint8Array; parsed: unknown }
+  | { type: 'response'; commandId: number; wifi?: WifiNotification }
   | { type: 'error'; message: string; stage: BleStage }
+  /** The robot does not report its IP over BLE; ip stays null. */
   | { type: 'provision-complete'; ip: string | null };
 
 function delay(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
+}
+
+const MAX_QUEUED_MESSAGES = 50;
+
+type MessageWaiter = {
+  match: (m: MiniMessage) => boolean;
+  resolve: (m: MiniMessage | null) => void;
+};
+
+function wifiNotificationOf(m: MiniMessage): WifiNotification | null {
+  if (m.header.commandId !== CMD.BIND_OR_SWITCH_WIFI_RESPONSE) {
+    return null;
+  }
+  try {
+    return parseWifiNotification(decodeWifiResponse(m.body).data);
+  } catch {
+    return null;
+  }
 }
 
 let sharedBleManager: BleManager | null = null;
@@ -50,9 +85,15 @@ export class AlphaMiniBleClient {
 
   private readonly onEvent: (e: BleEvent) => void;
 
-  private responseQueue: Uint8Array[] = [];
+  private messageQueue: MiniMessage[] = [];
 
-  private responseWaiters: Array<(bytes: Uint8Array) => void> = [];
+  private messageWaiters: MessageWaiter[] = [];
+
+  private reassembler = new FrameReassembler();
+
+  private sendSerial = 0;
+
+  private linkLost = false;
 
   private indicationSub: Subscription | null = null;
 
@@ -87,30 +128,96 @@ export class AlphaMiniBleClient {
     this.onEvent({ type: 'stage', stage });
   }
 
-  private dispatchResponse(bytes: Uint8Array) {
-    if (this.responseWaiters.length > 0) {
-      const w = this.responseWaiters.shift()!;
-      w(bytes);
-    } else {
-      this.responseQueue.push(bytes);
+  private onIndication(value: Uint8Array) {
+    const r = this.reassembler.push(value);
+    if (r.status !== 'complete') {
+      bleDiag('indication-fragment', {stage: this.currentStage, byteLength: value.length, ...r});
+      return;
+    }
+    let message: MiniMessage;
+    try {
+      message = decodeFrame(r.frame);
+    } catch (error) {
+      bleDiag('frame-decode-error', {stage: this.currentStage, ...bleErrorFields(error)}, r.frame);
+      return;
+    }
+    if (message.header.commandId === CMD.HANDSHAKE_RESPONSE) {
+      try {
+        rememberDiagnosticSecrets(decodeHandshakeResponse(message.body).sessionId);
+      } catch {
+        /* masked by offset anyway */
+      }
+    }
+    const wifi = wifiNotificationOf(message) ?? undefined;
+    bleDiag('frame-received', {stage: this.currentStage, groupId: r.groupId, fragments: r.fragments}, r.frame);
+    this.onEvent({ type: 'response', commandId: message.header.commandId, wifi });
+    const i = this.messageWaiters.findIndex(w => w.match(message));
+    if (i >= 0) {
+      const [w] = this.messageWaiters.splice(i, 1);
+      w.resolve(message);
+      return;
+    }
+    this.messageQueue.push(message);
+    if (this.messageQueue.length > MAX_QUEUED_MESSAGES) {
+      this.messageQueue.shift();
     }
   }
 
-  private async waitForResponse(timeoutMs: number): Promise<Uint8Array | null> {
-    if (this.responseQueue.length > 0) {
-      return this.responseQueue.shift()!;
+  private waitForMessage(
+    match: (m: MiniMessage) => boolean,
+    timeoutMs: number,
+  ): Promise<MiniMessage | null> {
+    const queued = this.messageQueue.findIndex(match);
+    if (queued >= 0) {
+      return Promise.resolve(this.messageQueue.splice(queued, 1)[0]);
+    }
+    if (this.linkLost) {
+      return Promise.resolve(null);
     }
     return new Promise(resolve => {
+      const waiter: MessageWaiter = {
+        match,
+        resolve: m => {
+          clearTimeout(timer);
+          resolve(m);
+        },
+      };
       const timer = setTimeout(() => {
-        this.responseWaiters = this.responseWaiters.filter(w => w !== waiter);
+        this.messageWaiters = this.messageWaiters.filter(w => w !== waiter);
         resolve(null);
       }, timeoutMs);
-      const waiter = (bytes: Uint8Array) => {
-        clearTimeout(timer);
-        resolve(bytes);
-      };
-      this.responseWaiters.push(waiter);
+      this.messageWaiters.push(waiter);
     });
+  }
+
+  private onLinkLost() {
+    this.linkLost = true;
+    const waiters = this.messageWaiters;
+    this.messageWaiters = [];
+    waiters.forEach(w => w.resolve(null));
+  }
+
+  private async writeFrame(dev: Device, frame: Uint8Array, label: string): Promise<void> {
+    const groupId = randomGroupId();
+    const values = fragmentFrame(frame, groupId);
+    bleDiag('frame-send', {stage: this.currentStage, label, groupId, fragments: values.length}, frame);
+    for (const [index, value] of values.entries()) {
+      await dev.writeCharacteristicWithResponseForService(
+        BLE.SERVICE_UUID,
+        BLE.CHAR_WRITE_UUID,
+        bytesToBase64(value),
+      );
+      bleDiag('gatt-write-ack', {label, groupId, fragmentNo: index + 1, byteLength: value.length});
+    }
+  }
+
+  private nextSerial(): number {
+    this.sendSerial += 1;
+    return this.sendSerial;
+  }
+
+  private async sendWifiCommand(dev: Device, data: string, label: string): Promise<void> {
+    await this.writeFrame(dev, buildWifiCommandFrame(data, this.nextSerial()), label);
   }
 
   async scan(timeoutMs: number = BLE.SCAN_TIMEOUT_MS): Promise<void> {
@@ -193,9 +300,12 @@ export class AlphaMiniBleClient {
   ): Promise<void> {
     rememberDiagnosticSecrets(password);
     bleDiag("provision-start", {deviceId: maskedDeviceId(deviceId), ssid, wifiSecured: Boolean(password), connectTimeoutMs: BLE.CONNECT_TIMEOUT_MS});
-    this.responseQueue = [];
-    this.responseWaiters = [];
-    let ipOut: string | null = null;
+    this.messageQueue = [];
+    this.messageWaiters = [];
+    this.reassembler.reset();
+    this.sendSerial = 0;
+    this.linkLost = false;
+    let networkConfigStarted = false;
 
     try {
       this.emitStage('connecting');
@@ -207,6 +317,7 @@ export class AlphaMiniBleClient {
       try {
         this.disconnectionSub = dev.onDisconnected(error => {
           bleDiag('disconnected', {deviceId: maskedDeviceId(dev.id), stage: this.currentStage, ...(error ? bleErrorFields(error) : {})});
+          this.onLinkLost();
         });
       } catch (error) { bleDiag('disconnect-observer-error', bleErrorFields(error)); }
 
@@ -235,59 +346,79 @@ export class AlphaMiniBleClient {
           if (!v) {
             return;
           }
-          const bytes = base64ToBytes(v);
-          const parsed = tryParseResponse(bytes);
-          bleDiag("response", {stage: this.currentStage, parsed}, bytes);
-          this.onEvent({ type: 'response', data: bytes, parsed });
-          this.dispatchResponse(bytes);
+          this.onIndication(base64ToBytes(v));
         },
       );
       bleDiag("monitor-registered", {characteristic: BLE.CHAR_INDICATE_UUID, acknowledgementObserved: false});
       await delay(300);
 
-      this.emitStage('authenticating');
-      const { packet: authPacket } = buildAuthPacket();
-      bleDiag("auth-request", {}, authPacket);
-      await dev.writeCharacteristicWithResponseForService(
-        BLE.SERVICE_UUID,
-        BLE.CHAR_WRITE_UUID,
-        bytesToBase64(authPacket),
+      this.emitStage('handshaking');
+      const handshakeSerial = this.nextSerial();
+      await this.writeFrame(dev, buildHandshakeFrame(handshakeSerial), 'handshake');
+      const shake = await this.waitForMessage(
+        m => m.header.commandId === CMD.HANDSHAKE_RESPONSE && m.header.responseSerial === handshakeSerial,
+        BLE.HANDSHAKE_TIMEOUT_MS,
       );
-
-      const authResp = await this.waitForResponse(10000);
-      bleDiag("auth-response", {timedOut: authResp === null, timeoutMs: 10000}, authResp ?? undefined);
-      if (!isAuthOk(authResp)) {
-        throw new Error(
-          `Auth failed: ${authResp ? JSON.stringify(describeDiagnosticFrame(authResp)) : 'timeout'}`,
-        );
+      if (!shake) {
+        bleDiag('handshake-timeout', {timeoutMs: BLE.HANDSHAKE_TIMEOUT_MS, linkLost: this.linkLost});
+        throw new Error(this.linkLost ? MESSAGES.linkLost : MESSAGES.handshakeTimeout);
       }
-      await delay(300);
+      const shakeBody = decodeHandshakeResponse(shake.body);
+      bleDiag('handshake-response', {
+        isSuccess: shakeBody.isSuccess,
+        errorCode: shakeBody.errorCode,
+        sysLan: shakeBody.sysLan,
+        robotSoftVersionName: shakeBody.robotSoftVersionName,
+        btInterfaceVersion: shakeBody.btInterfaceVersion,
+        hasSession: shakeBody.sessionId.length > 0,
+      });
+      if (!shakeBody.isSuccess) {
+        throw new Error(MESSAGES.handshakeRejected(shakeBody.errorCode));
+      }
 
       this.emitStage('sending-wifi');
-      const wifiPacket = buildWifiConfigPacket(ssid, password);
-      bleDiag("wifi-request", {}, wifiPacket);
-      await dev.writeCharacteristicWithResponseForService(
-        BLE.SERVICE_UUID,
-        BLE.CHAR_WRITE_UUID,
-        bytesToBase64(wifiPacket),
+      networkConfigStarted = true;
+      await this.sendWifiCommand(dev, startNetworkConfigJson(), 'start-network-config');
+      const ready = await this.waitForMessage(
+        m => wifiNotificationOf(m)?.co === WIFI_CO.READY,
+        BLE.READY_TIMEOUT_MS,
       );
-
-      this.emitStage('waiting-response');
-      const wifiResp = await this.waitForResponse(BLE.RESPONSE_TIMEOUT_MS);
-      bleDiag("wifi-response", {timedOut: wifiResp === null, timeoutMs: BLE.RESPONSE_TIMEOUT_MS}, wifiResp ?? undefined);
-      if (!wifiResp) {
-        throw new Error('Robot WiFi response timeout');
+      const readyNote = ready ? wifiNotificationOf(ready) : null;
+      bleDiag('network-config-ready', {received: Boolean(ready), cd: readyNote?.cd, timeoutMs: BLE.READY_TIMEOUT_MS});
+      if (readyNote && readyNote.cd !== '0') {
+        throw new Error(MESSAGES.otherDeviceConfiguring);
       }
-      const wifiParsed = tryParseResponse(wifiResp);
-      ipOut = wifiParsed ? extractWifiIp(wifiParsed.payload) : null;
+      if (!ready && this.linkLost) {
+        throw new Error(MESSAGES.linkLost);
+      }
 
-      bleDiag("provision-complete", {ip: ipOut});
+      await this.sendWifiCommand(dev, wifiConfigJson({ssid, password}), 'wifi-config');
+      this.emitStage('waiting-response');
+      const result = await this.waitForMessage(m => {
+        const co = wifiNotificationOf(m)?.co;
+        return co === WIFI_CO.WIFI_CONNECTED || co === WIFI_CO.ERROR;
+      }, BLE.RESPONSE_TIMEOUT_MS);
+      const outcome = result ? wifiNotificationOf(result) : null;
+      bleDiag('wifi-result', {received: Boolean(result), co: outcome?.co, ec: outcome?.ec, linkLost: this.linkLost, timeoutMs: BLE.RESPONSE_TIMEOUT_MS});
+      if (!outcome) {
+        throw new Error(this.linkLost ? MESSAGES.linkLostAfterWifi : MESSAGES.wifiTimeout);
+      }
+      if (outcome.co === WIFI_CO.ERROR) {
+        throw new Error(wifiErrorMessage(outcome.ec));
+      }
+
+      await this.quitNetworkConfig(dev);
+      networkConfigStarted = false;
+      bleDiag("provision-complete", {ip: null});
       this.emitStage('success');
       this.onEvent({
         type: 'provision-complete',
-        ip: ipOut,
+        ip: null,
       });
     } catch (e) {
+      if (networkConfigStarted && this.device && !this.linkLost) {
+        await this.quitNetworkConfig(this.device);
+      }
       const failStage = this.currentStage;
       bleDiag("provision-error", {stage: failStage, ...bleErrorFields(e)});
       this.emitStage('failed');
@@ -299,6 +430,15 @@ export class AlphaMiniBleClient {
       throw e;
     } finally {
       await this.cleanup();
+    }
+  }
+
+  /** Best effort {"co":12}: leaves the robot's BLE network skill; never masks the outcome. */
+  private async quitNetworkConfig(dev: Device): Promise<void> {
+    try {
+      await this.sendWifiCommand(dev, quitNetworkConfigJson(), 'quit-network-config');
+    } catch (error) {
+      bleDiag('quit-network-config-error', bleErrorFields(error));
     }
   }
 
@@ -321,8 +461,9 @@ export class AlphaMiniBleClient {
     }
     bleDiag("disconnect-cleanup-complete", {deviceId: this.device ? maskedDeviceId(this.device.id) : null});
     this.device = null;
-    this.responseQueue = [];
-    this.responseWaiters = [];
+    this.onLinkLost();
+    this.messageQueue = [];
+    this.reassembler.reset();
   }
 
   async disconnect(): Promise<void> {

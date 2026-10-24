@@ -1,15 +1,27 @@
-import {PROTOCOL} from './constants';
+import {
+  CMD,
+  SECRET_FIELDS,
+  decodeMessage,
+  decodeWifiRequest,
+  decodeWifiResponse,
+  readProtoFields,
+  unpackFrame,
+  utf8Encode,
+} from './codec';
+import { parseWifiNotification } from './wifi';
+
 const secretKey =
-  /password|passphrase|passwd|pwd|token|salt|aes.*key|authorization|secret|credential/i;
-const secrets = new Set<string>([PROTOCOL.AES_KEY]);
+  /password|passphrase|passwd|pwd|token|salt|aes.*key|authorization|secret|credential|session/i;
+const secrets = new Set<string>();
 let frameSequence = 0;
 export function rememberDiagnosticSecrets(...values: string[]): void {
   values.filter(Boolean).forEach(v => secrets.add(v));
   while (secrets.size > 128) {
-    const oldest = Array.from(secrets).find(v => v !== PROTOCOL.AES_KEY);
-    if (oldest) {
-      secrets.delete(oldest);
+    const oldest = secrets.values().next().value;
+    if (oldest === undefined) {
+      break;
     }
+    secrets.delete(oldest);
   }
 }
 export function redactDiagnostic(
@@ -23,7 +35,7 @@ export function redactDiagnostic(
     }
     text = text.replace(/\b(?:[a-f\d]{2}[\s:]*){8,}/gi, '[REDACTED_HEX]');
     return text.replace(
-      /(["']?(?:password|passphrase|passwd|pwd|token|salt|aes[_-]?key|authorization|secret)["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'[^']*'|[^\s,;}]+)/gi,
+      /(["']?(?:password|passphrase|passwd|pwd|token|salt|aes[_-]?key|authorization|secret|session[_-]?id)["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'[^']*'|[^\s,;}]+)/gi,
       '$1[REDACTED]',
     );
   }
@@ -65,116 +77,94 @@ export function bleErrorFields(error: unknown) {
 export function maskedDeviceId(id: string): string {
   return `device:...${id.slice(-4)}`;
 }
-function stringEnd(text: string, start: number): number {
-  for (let i = start + 1; i < text.length; i++) {
-    if (text[i] === '\\') {
-      i++;
-    } else if (text[i] === '"') {
-      return i + 1;
+
+const FRAME_PREFIX = 5;
+const REDACTED = 0x2a;
+
+type FrameSummary = {
+  commandId?: number;
+  sendSerial?: number;
+  responseSerial?: number;
+  msgType?: number;
+  /** "co"/"ec"/"cd"/networkCount from command 32/1032 JSON; other JSON values are masked. */
+  wifi?: Record<string, unknown>;
+};
+
+/** Masks [start, end) of the body (offsets relative to the frame). */
+function maskBodyFields(
+  safe: Uint8Array,
+  body: Uint8Array,
+  bodyOffset: number,
+  fieldNumbers: readonly number[],
+) {
+  for (const f of readProtoFields(body)) {
+    if (fieldNumbers.includes(f.field)) {
+      safe.fill(REDACTED, bodyOffset + f.valueStart, bodyOffset + f.end);
     }
   }
-  return text.length;
 }
-function valueEnd(text: string, start: number): number {
-  if (text[start] === '"') {
-    return stringEnd(text, start);
+
+function wifiSummary(data: string): Record<string, unknown> {
+  const n = parseWifiNotification(data);
+  if (!n) {
+    return { parsed: false };
   }
-  let depth = 0;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '"') {
-      i = stringEnd(text, i) - 1;
-    } else if (ch === '{' || ch === '[') {
-      depth++;
-    } else if (ch === '}' || ch === ']') {
-      if (depth === 0) {
-        return i;
-      }
-      if (--depth === 0) {
-        return i + 1;
-      }
-    } else if (ch === ',' && depth === 0) {
-      return i;
-    }
-  }
-  return text.length;
+  const { co, ec, cd, networkCount } = n;
+  return { co, ec, cd, networkCount };
 }
-/** Keep wire offsets/length; mask protected bytes with 0x2a, never reserialize JSON. */
+
+/**
+ * Logical-frame view for logs: keeps byte offsets and header, masks every secret by protobuf
+ * offset (session ids, the whole Wi-Fi JSON string) and fails closed on anything unparseable.
+ */
 export function describeDiagnosticFrame(bytes: Uint8Array) {
   const safe = new Uint8Array(bytes);
   const size = bytes.length;
-  const length =
-    size >= 5
-      ? new DataView(
-          bytes.buffer,
-          bytes.byteOffset,
-          bytes.byteLength,
-        ).getUint32(0)
-      : -1;
-  const headerSize = length === size - 4 ? 5 : 0;
   let format = 'opaque';
+  const summary: FrameSummary = {};
   try {
-    const body = new TextDecoder('utf-8', {fatal: true}).decode(
-      bytes.slice(headerSize),
-    );
-    if (new TextEncoder().encode(body).length !== bytes.length - headerSize) {
-      throw new Error('decoded payload offsets are not byte-exact');
+    const payload = unpackFrame(bytes);
+    const fields = readProtoFields(payload);
+    const bodyField = fields.filter(f => f.field === 2 && f.wire === 2).at(-1);
+    const { header, body } = decodeMessage(payload);
+    const bodyOffset = FRAME_PREFIX + (bodyField?.valueStart ?? payload.length);
+    summary.commandId = header.commandId;
+    summary.sendSerial = header.sendSerial;
+    summary.responseSerial = header.responseSerial;
+    summary.msgType = header.msgType;
+    if (header.commandId === CMD.HANDSHAKE) {
+      maskBodyFields(safe, body, bodyOffset, SECRET_FIELDS.handshakeRequest);
+    } else if (header.commandId === CMD.HANDSHAKE_RESPONSE) {
+      maskBodyFields(safe, body, bodyOffset, SECRET_FIELDS.handshakeResponse);
+    } else if (header.commandId === CMD.BIND_OR_SWITCH_WIFI) {
+      summary.wifi = wifiSummary(decodeWifiRequest(body).data);
+      maskBodyFields(safe, body, bodyOffset, [1]);
+    } else if (header.commandId === CMD.BIND_OR_SWITCH_WIFI_RESPONSE) {
+      summary.wifi = wifiSummary(decodeWifiResponse(body).data);
+      maskBodyFields(safe, body, bodyOffset, [1]);
+    } else {
+      safe.fill(REDACTED, bodyOffset, FRAME_PREFIX + payload.length);
     }
-    const parsed: unknown = JSON.parse(body);
-    if (!parsed || typeof parsed !== 'object') {
-      throw new Error('not structured JSON');
-    }
-    format = headerSize ? 'framed-json' : 'json';
-    const keys = /"(?:\\.|[^"\\])*"\s*:/g;
-    let match: RegExpExecArray | null;
-    while ((match = keys.exec(body))) {
-      const key = JSON.parse(
-        match[0].slice(0, match[0].lastIndexOf(':')).trim(),
-      ) as string;
-      if (!secretKey.test(key)) {
-        continue;
-      }
-      let start = keys.lastIndex;
-      while (start < body.length && /\s/.test(body[start])) {
-        start++;
-      }
-      const end = valueEnd(body, start);
-      try {
-        const v: unknown = JSON.parse(body.slice(start, end));
-        if (typeof v === 'string') {
-          rememberDiagnosticSecrets(v);
-        }
-      } catch {
-        /* still mask */
-      }
-      safe.fill(
-        0x2a,
-        headerSize + new TextEncoder().encode(body.slice(0, start)).length,
-        headerSize + new TextEncoder().encode(body.slice(0, end)).length,
-      );
-    }
-    for (const secret of secrets) {
-      for (const encoded of [
-        new TextEncoder().encode(secret),
-        new TextEncoder().encode(JSON.stringify(secret).slice(1, -1)),
-      ]) {
-        for (let i = headerSize; i <= size - encoded.length; i++) {
-          if (encoded.length && encoded.every((b, j) => bytes[i + j] === b)) {
-            safe.fill(0x2a, i, i + encoded.length);
-          }
-        }
-      }
-    }
+    format = 'mini-ble';
   } catch {
-    safe.fill(0x2a, headerSize);
+    safe.fill(REDACTED, Math.min(FRAME_PREFIX, size));
+  }
+  // Defense in depth: known secrets anywhere in the bytes.
+  for (const secret of secrets) {
+    const encoded = utf8Encode(secret);
+    for (let i = 0; encoded.length && i <= size - encoded.length; i++) {
+      if (encoded.every((b, j) => bytes[i + j] === b)) {
+        safe.fill(REDACTED, i, i + encoded.length);
+      }
+    }
   }
   const hex = (data: Uint8Array) =>
     Array.from(data, b => b.toString(16).padStart(2, '0')).join('');
   return {
     byteLength: size,
     format,
-    method: headerSize ? bytes[4] : undefined,
-    headerHex: hex(safe.slice(0, headerSize)),
+    ...summary,
+    headerHex: hex(safe.slice(0, Math.min(FRAME_PREFIX, size))),
     rawHex: hex(safe),
     redactedByte: '2a',
   };

@@ -8,7 +8,7 @@ const ROWS: { stage: BleStage; label: string }[] = [
   { stage: 'connecting', label: 'Kết nối BLE...' },
   { stage: 'discovering', label: 'Thỏa thuận MTU & khám phá GATT...' },
   { stage: 'enabling-indication', label: 'Bật indication...' },
-  { stage: 'authenticating', label: 'Xác thực...' },
+  { stage: 'handshaking', label: 'Bắt tay với robot...' },
   { stage: 'sending-wifi', label: 'Gửi cấu hình WiFi...' },
   { stage: 'waiting-response', label: 'Đợi robot vào WiFi...' },
 ];

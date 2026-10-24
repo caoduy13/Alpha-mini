@@ -613,3 +613,28 @@ có Internet (ec=11/12). Chỉ đổi từng biến một, có log.
 Golden offline (SDK, Wi-Fi giả) và công cụ sinh: `GenGolden.java` chạy SDK classes.jar +
 protobuf-java 3.10.0 + gson 2.8.6 + org.json + kotlin-stdlib, stub `android.util.Log`, không
 nhúng gì vào repo. Kết quả lưu ở `AlphaMiniApp/__tests__/fixtures/ble-golden-sdk.json`.
+
+### 13.7 Timeout phía app và đối chiếu luồng SDK
+
+**Timeout chờ kết quả Wi-Fi = 90 s** (`BLE.RESPONSE_TIMEOUT_MS`, trước là 30 s). Căn cứ code robot:
+- `UBTBleConfigureNetwork.connectedBegin` gọi `startConnectWifiTimer()`. Hàm này tạo
+  `Timer("ConnWifi_Timer")` và `schedule(task, 0xea60)` = **60 000 ms**. Hết hạn thì `$4.run` đẩy ec=4.
+- Chỉ sau khi broadcast báo CONNECTED, `wifiConnectState` mới gọi `doWifiCheck()`. Với `v`≠"1",
+  bước này chạy `CheckWifiLoginTask`/ping Internet rồi mới đẩy `{"co":102}` hoặc ec=11/12.
+- Vì vậy kết quả có thể đến sau mốc 60 s (60 s kết nối cộng thời gian kiểm tra Internet). Timeout 30 s cũ
+  ngắn hơn chính hẹn giờ của robot. Chọn 90 s để có biên cho bước ping; giá trị này chưa đo trên robot.
+- SDK client (`viewmodel/c/e/f.a(Context, NetConfigParams)`) dùng `timeout(60, SECONDS)` cho co=2.
+  App chờ lâu hơn SDK để không báo lỗi sớm khi robot vẫn đang kiểm tra Internet.
+
+**Luồng SDK (ConfigByBleActivity → ConfigByBleViewModel → viewmodel/c/e/f → bindandconfig/e/a):**
+1. Handshake protobuf command 0 nằm ở tầng `MiniControlApi.connect`. Kết nối xong, SDK chờ 100 ms
+   (`Observable.delay(100ms)`).
+2. "sendHadShake" ở viewmodel thực chất là **co=4**, chờ push co=104. Hàm xử lý 104 (`d/a$a`)
+   gọi `ui.c.d()` hoặc `ui.c.f()` tùy `cd`.
+3. co=5 (kiểm tra mạng của robot, đáp co=105) và co=4 + co=1 (danh sách Wi-Fi, đáp co=101) phục vụ UI.
+4. Người dùng chọn mạng → **co=2**, chờ co=102 hoặc co=-1, timeout 60 s.
+5. **co=12** (`exitConfigNetSkill`) gửi khi rời màn hình; callback chỉ ghi log, không chờ phản hồi.
+
+App dùng chuỗi bắt buộc co=4→104, co=2→102/-1, co=12 và **chưa** gửi co=5/co=1.
+Handler co=2 trên robot không phụ thuộc hai lệnh này. Hai lệnh để dành cho bước UX quét Wi-Fi
+(mỗi lần đổi một biến).

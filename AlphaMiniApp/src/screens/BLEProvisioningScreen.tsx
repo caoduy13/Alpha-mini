@@ -280,7 +280,7 @@ export function BLEProvisioningScreen({ navigation }: Props) {
               <View style={styles.successBox}>
                 <MaterialCommunityIcons name="check-circle" size={28} color={colors.success} />
                 <Text style={styles.successTxt}>
-                  Robot đã nhận WiFi.
+                  Robot đã kết nối WiFi.
                   {resultIp ? ` IP gợi ý: ${resultIp}` : ''}
                 </Text>
                 <Pressable style={styles.btnAccent} onPress={() => void onSuccessNext()}>

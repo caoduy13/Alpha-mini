@@ -145,4 +145,7 @@ export const MESSAGES = {
       : `Robot từ chối bắt tay Bluetooth (mã ${errorCode}).`,
   otherDeviceConfiguring: 'Robot đang được thiết bị khác cấu hình mạng. Hãy đợi hoặc khởi động lại robot.',
   wifiTimeout: 'Không nhận được kết quả Wi-Fi từ robot. Hãy kiểm tra robot đã nói "kết nối mạng thành công" chưa, rồi thử lại.',
+  linkLost: 'Mất kết nối Bluetooth với robot. Hãy để điện thoại gần robot và thử lại.',
+  linkLostAfterWifi:
+    'Mất kết nối Bluetooth trước khi robot báo kết quả Wi-Fi. Robot có thể vẫn đang vào mạng — hãy kiểm tra trên server trước khi thử lại.',
 } as const;
