@@ -112,7 +112,6 @@ export function BLEProvisioningScreen({ navigation }: Props) {
       await cancel();
       setUiStep(2);
       setSelectedId(null);
-      await startScan();
     })();
   }
 
