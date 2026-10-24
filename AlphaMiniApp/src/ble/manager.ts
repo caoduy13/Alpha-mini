@@ -306,7 +306,11 @@ export class AlphaMiniBleClient {
     bleDiag("disconnect-start", {deviceId: this.device ? maskedDeviceId(this.device.id) : null, stage: this.currentStage});
     try {
       this.disconnectionSub?.remove();
-      this.disconnectionSub = null;
+    } catch (error) {
+      bleDiag("disconnect-observer-cleanup-error", bleErrorFields(error));
+    }
+    this.disconnectionSub = null;
+    try {
       this.indicationSub?.remove();
       this.indicationSub = null;
       if (this.device) {
