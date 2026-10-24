@@ -172,22 +172,20 @@ SDK client `MiniControlApi$buindRequest$1` phát request command **32**. MainApp
 `UBTBleConfigureNetwork.sendWifiResultToMobile/sendConnectSuccess/sendErrorCodeToPhone`
 phát protobuf response trên command **1032**; một số event này có msgType REQUEST (push),
 không được giả định mọi thông báo 1032 là response one-shot.
-Bảng đăng ký trực tiếp request 32 trên robot chưa được truy ra trong lần đọc này; không coi
-mối ghép 32→1032 đã được xác nhận bằng trace runtime. Không sinh frame Wi-Fi từ suy luận đó.
+Đăng ký 32→1032 đã truy ra ở mục 13 (annotation `ProtoMsgRelation` của
+`BleConfigNetworkRelation`); chưa có trace runtime của lệnh Wi-Fi.
 
 Ở MainApp, `BindOrSwitchWifiHandler.handleMsg()` lấy `request.data`, parse JSONObject, rồi
 chuyển tới `UBTBleConfigureNetwork.parseResult()`. Đây là **JSON nằm trong string của protobuf**.
 Các nhánh đã kiểm chứng:
 
-- `cid` là int phân biệt thao tác; cid=2 (WIFI_NAME_TRANS) và cid=21
-  (WIFI_INFO_TRANS_FOR_BINDING) tới receiverWifiName; cid=1 (WIFI_LIST_TRANS) yêu cầu quét Wi-Fi.
+- **Sửa 2026-10-25:** khóa phân biệt thao tác là `co` (BindConfigConstants.JSON_COMMAND), không
+  phải `cid` (`cid` = CLIENTID, chỉ dùng cho binding). co=2 (WIFI_NAME_TRANS) và co=21
+  (WIFI_INFO_TRANS_FOR_BINDING) tới receiverWifiName; co=1 (WIFI_LIST_TRANS) yêu cầu quét Wi-Fi.
 - receiverWifiName đọc `s`:string SSID, `p`:string mật khẩu, `c`:string bảo mật/capabilities;
-  `b`:string BSSID là optString, `v`:string verify là optString mặc định `"0"`.
-  Tên và kiểu lấy từ BindConfigConstants và các lệnh JSONObject.getString/optString.
-  Ý nghĩa chi tiết/các giá trị hợp lệ của `v` chưa được xác minh; không tự đặt giá trị cho app.
-- Response.data cũng là JSON theo cid. BindConfigConstants có WIFI_LIST_TO_MOBILE_TRANS=101,
-  ROBOT_CONNECT_SUCCESS=104 và RESPONSE_CODE=`ec`; phải xử lý từng loại thông báo thay vì tìm
-  field `ip` duy nhất. Chưa trích toàn bộ bảng cid và dữ liệu cho mọi chế độ mạng/binding.
+  `b`:string BSSID là optString, `v`:string là optString mặc định `"0"`.
+  `v` = `dontPingNet` của SDK (mục 13.2); bảng đầy đủ giá trị ở mục 13.
+- Response.data cũng là JSON, phân biệt bằng `co`; bảng đầy đủ ở mục 13.4.
 - Nhánh binding có tên trường authCode, codeVerifier, userId, sch, qm; đây không phải salt/token
   của gói AES tự tạo hiện tại. Không suy ra có thể bỏ qua bước tài khoản/ủy quyền của firmware.
 - Không phát hiện AES decrypt trong đường data→JSONObject→receiverWifiName đã trace. Điều đó
@@ -499,3 +497,119 @@ Run 2:
 2026-10-25T01:00:55.504+07:00 XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX 23 29 00 04
 2026-10-25T01:00:55.535+07:00 XX XX XX XX XX XX XX XX 52 01 31 01 ED 23 29 00 05
 ```
+
+## 13. Lệnh cấu hình Wi-Fi — đặc tả offline (2026-10-25)
+
+Nguồn: MainApp.apk (hash mục 1) dexdump `classes2.dex` (`-d` và `-a` cho annotation) và SDK
+client `alpha-mini-oversea-edu-sdk-0.0.9` (javap). Chưa thử trên robot; mọi điểm dưới đây là
+bằng chứng bytecode, firmware thật (v2.2.5.917) có thể khác V2.2.4 tham chiếu.
+
+### 13.1 Định tuyến và cổng chặn trên robot
+
+- `BleConfigNetworkRelation` (extends IProtoMsgRelation) có annotation
+  `ProtoMsgRelation{msgClass=BindOrSwitchWifiRequest, msgHandleClass=BindOrSwitchWifiHandler,
+  requestCmdId=32, responseCmdId=1032}`. `CmdId.BL_BIND_OR_SWITCH_WIFI_REQUEST=32`,
+  `..._RESPONSE=1032`.
+- Đường đi: GATT write → `BleServer$BleDataReceiver$1.run` (ghép mảnh) → `parseMessage`
+  (command≠0) → `BleServer.onDataRead0` → `ChannelServer$6.run` →
+  `BleMessageDispatcherEngine.dispatchProtoMsg` → `BindOrSwitchWifiHandler.handleMsg`.
+- Cổng duy nhất: `onDataRead0` chỉ dispatch nếu client BLE là `currentHolder` (đã handshake
+  thành công); ngược lại log "ble device no HandShake or has been kick off" và ngắt client.
+- `ChannelServer$6.run` bỏ request có `sendSerial` trùng request trước của cùng uuid
+  ("duplicate request") → app phải tăng sendSerial cho mỗi request.
+- dispatchProtoMsg chỉ đọc commandId/sendSerial/responseSerial/versionCode; **không đọc msgType**.
+- Ghép mảnh request (`PacketData.putBytes`): mảnh đầu được lưu; mảnh sau cùng groupId được nối
+  rồi thử unpack cả buffer; groupId khác → xóa buffer và bắt đầu lại; fragmentNo trùng mảnh
+  trước → bỏ qua. Không có ACK lỗi khi ghép thất bại (im lặng).
+
+**AppKey/chữ ký/tài khoản: KHÔNG cần cho co=4/co=2/co=12.** Không có Cipher/MessageDigest/
+Signature/AppId trên đường trên; handler chỉ parse JSON. Nhánh binding (co=21, co=3 với
+`cid`/`authCode`/`codeVerifier`/`userId`, co=11 Alexa) dùng dữ liệu tài khoản — app không dùng.
+
+### 13.2 Request: command 32, `BindOrSwitchWifiRequest{data, versionCode}`
+
+- Header theo builder SDK `ProtoBufferDispose.a(cmd, version, sendSerial, responseSerial, body)`:
+  commandId=32, sendSerial, responseSerial=0, versionCode=1; **msgType không đặt** (mặc định 0).
+- Body: `data` = chuỗi JSON; `versionCode=168` (SDK `BleConfigDataSource$e`). Robot: nếu
+  versionCode≠168 và co=4 thì phát thêm TTS; ngoài ra không dùng.
+- JSON do SDK sinh (Gson, bỏ field null; thứ tự khóa s, c, p, b, v, co):
+
+| co | Ý nghĩa (BindConfigConstants) | Trường | Robot làm gì |
+| --- | --- | --- | --- |
+| 4 | CONNECT_SUCCESS — app báo đã nối BLE | — | Nếu IM network skill đang chạy → push 104 với cd `"2"`; ngược lại bật BleNetworkSkill, quét Wi-Fi, tạo luồng gửi danh sách, push `{"co":104,"cd":0}` |
+| 2 | WIFI_NAME_TRANS — gửi Wi-Fi (không binding) | `s` SSID (bắt buộc), `p` mật khẩu (bắt buộc, có thể rỗng), `c` bảo mật (bắt buộc), `b` BSSID (tùy chọn), `v` dontPingNet (tùy chọn, mặc định "0") | Dừng hẹn giờ, kết nối Wi-Fi (mục 13.3) |
+| 1 | WIFI_LIST_TRANS — quét lại | — | Xóa danh sách; gửi danh sách qua luồng của co=4 |
+| 10 | STOP_SEND_WIFI_LIST | — | Ngừng gửi danh sách, push `{"co":110}` |
+| 12 | QUIT_BLE_NETWORK_SKILL | — | Dừng skill, luồng gửi; chỉ tắt card mạng khi đang ở chế độ 4G |
+| 21, 3, 8, 9, 11 | binding / clientId / 4G / Alexa | tài khoản | Không dùng |
+
+Thiếu `s`, `p` hoặc `c` → JSONException bị bắt trong parseResult, **robot im lặng**.
+SDK gọi `b.a(cap, ssid, pwd, bssid, dontPingNet)`; `dontPingNet` mặc định "0" trong SDK.
+
+Bảo mật (`BleNetworkWifiManager.createWifiInfo`): mật khẩu rỗng → mạng mở; `c` chứa "WEP" →
+WEP; mọi giá trị khác (kể cả "WPA2", "WPA", "N") → WPA-PSK với preSharedKey. `b` được gán thẳng
+vào `WifiConfiguration.BSSID` (rỗng nếu app không gửi) — rủi ro chưa kiểm chứng trên firmware này.
+Danh sách quét của robot ghi `c` là "WEP"/"WPA2"/"WPA"/"N".
+
+### 13.3 Trình tự kết nối trên robot
+
+1. `receiverWifiName` → `connectedBegin`: nếu BSSID hiện tại = `b` thì coi như đã nối →
+   kiểm tra mạng ngay; nếu không: hẹn giờ **60 000 ms** (`startConnectWifiTimer`), đặt trạng
+   thái CONNECTING, chạy `ConnectRunnable` (addNetwork/enableNetwork/reconnect).
+2. `connect()` trả false → push lỗi ec=12.
+3. Broadcast: lỗi xác thực → `bandingEnd` → TTS sai mật khẩu, push ec=1; lỗi khác
+   `connectWifiError` → ec=0; từ CONNECTING sang DISCONNECTED → quên mạng, ec=13; hết 60 s → ec=4.
+4. CONNECTED đúng SSID → `doWifiCheck`: nếu `v`="1" push `{"co":102}` ngay; nếu không, kiểm tra
+   Internet (CheckWifiLoginTask/ping): cần đăng nhập web → quên mạng, ec=11; không ra Internet →
+   quên mạng, ec=12; thành công → `{"co":102}` và TTS báo nối mạng thành công.
+5. Không có mã riêng cho "không tìm thấy SSID": thực tế rơi vào ec=13/ec=4/ec=0.
+
+### 13.4 Thông báo robot → app: command 1032, `BindOrSwitchWifiResponse{data}`
+
+Gửi bằng `ChannelServer.sendMessageByBle(1032, version 1, responseSerial 0, …, MessageType.REQUEST)`
+→ push, **không** mang responseSerial của request; app phải lọc theo `co` trong `data`.
+
+| `data` | Ý nghĩa |
+| --- | --- |
+| `{"co":104,"cd":0}` | Đáp co=4: sẵn sàng cấu hình. `cd` "1"/"2" (chuỗi) = robot đang được thiết bị khác cấu hình |
+| `{"co":101,"p":"[…]"}` | Danh sách Wi-Fi; `p` là **chuỗi** JSON mảng `{l:RSSI,s:SSID,b:BSSID,c:"WEP"/"WPA2"/"WPA"/"N",o:đã từng nối,u:đang nối,g:false}` |
+| `{"co":102}` | Robot đã nối Wi-Fi (và qua kiểm tra Internet nếu v≠"1") |
+| `{"co":-1,"ec":N}` | Lỗi (bảng dưới) |
+| `{"co":105,…}`, `{"co":108,…}`, 103/109/110/111 | Trạng thái mạng/4G/binding/ngừng danh sách — không dùng cho luồng này |
+
+| ec | Hằng | Nghĩa |
+| --- | --- | --- |
+| 0 | CONNENT_WIFI_FIALED_ERROR_CODE | Kết nối thất bại (lỗi supplicant khác) |
+| 1 | PASSWORD_VALIDATA_ERROR_CODE | Sai mật khẩu |
+| 2 | PING_ERROR_CODE | Ping lỗi (không thấy nơi phát trong bản V2.2.4) |
+| 3, 6 | TVS_LOGIN_ERROR_CODE, TVS_ERROR_CODE | Dịch vụ giọng nói |
+| 4 | CONNECT_TIME_OUT_ERROR_CODE | Hết 60 s chưa nối được |
+| 5 | ALEARDY_CONNECT_ERROR_CODE | Đã kết nối |
+| 7, 8 | ERROR_CODE_4G, ERROR_CODE_4G_NO_SIM | 4G |
+| 11 | WIFI_NEED_AUTH_ERROR_CODE | Wi-Fi cần đăng nhập web (captive portal) |
+| 12 | WIFI_CANT_ACCESS_INTERNET | Không ra Internet, hoặc addNetwork/enable thất bại |
+| 13 | WIFI_CANT_BE_CONNECTED | Không nối được (rớt từ CONNECTING) |
+| 14 | OTHER_DEVICE_CONNECT | Thiết bị khác đang kết nối |
+
+### 13.5 Lệnh quét Wi-Fi trên robot — chỉ ghi nhận
+
+Có. Sau co=4 (hoặc co=1 để quét lại), luồng `WifiSender` lấy kết quả quét, lọc (bỏ SSID rỗng,
+IBSS, trùng SSID giữ RSSI mạnh; 5 GHz bị lọc ở một số bản), chia nhóm **2 mạng mỗi thông báo**
+và push `{"co":101,"p":…}` khoảng mỗi 10 s cho tới co=10 (robot đáp co=110) hoặc co=12.
+Mỗi mục có BSSID và `c` → dùng được cho UX "chọn mạng từ danh sách robot" và để gửi `b`/`c` chính
+xác. App lượt này **không** dùng danh sách (chỉ đếm, không log SSID lân cận).
+
+### 13.6 Trình tự app chọn cho lần thử đầu (chưa kiểm chứng trên robot)
+
+1. Handshake command 0 (frame 19 byte đã chứng minh, sendSerial=1) → chờ 1000, isSuccess.
+2. command 32 `{"co":4}` sendSerial=2 → chờ 1032 co=104 (cd≠0 → báo thiết bị khác đang cấu hình).
+3. command 32 `{"s","c","p","v":"0","co":2}` sendSerial=3; `c`="WPA2" nếu có mật khẩu, "N" nếu
+   không; không gửi `b`. Chờ 1032 co=102 hoặc co=-1; bỏ qua co=101. App chờ 90 s
+   (robot tự hẹn 60 s + kiểm tra Internet), thay cho 30 s cũ vốn ngắn hơn hẹn giờ của robot.
+4. command 32 `{"co":12}` sendSerial=4 (best effort, không chờ) rồi ngắt BLE.
+Biến dự phòng nếu robot báo lỗi: gửi `b`/`c` từ danh sách co=101; `v`="1" nếu mạng LAN không
+có Internet (ec=11/12). Chỉ đổi từng biến một, có log.
+
+Golden offline (SDK, Wi-Fi giả) và công cụ sinh: `GenGolden.java` chạy SDK classes.jar +
+protobuf-java 3.10.0 + gson 2.8.6 + org.json + kotlin-stdlib, stub `android.util.Log`, không
+nhúng gì vào repo. Kết quả lưu ở `AlphaMiniApp/__tests__/fixtures/ble-golden-sdk.json`.
