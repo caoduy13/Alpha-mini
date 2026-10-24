@@ -32,6 +32,9 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 ws_mini_compat.apply_mini_websocket_compat()
 
+# Uptime cho GET /connect/diagnose (monotonic — không lùi khi đổi giờ hệ thống).
+_SERVER_MONO_START = time.monotonic()
+
 # Bộ nhớ cache MP3 cho TTS HTTP (robot tải qua LAN)
 _TTS_CACHE_DIR = Path(__file__).resolve().parent / "tts_cache"
 _ROBOT_MUSIC_DIR = Path(__file__).resolve().parent / "robot_music"
@@ -3160,6 +3163,53 @@ async def status():
             "list_and_diagnostics": "GET /robot/music",
             "play_file_via_robot": "GET /robot/trigger?cmd=audio&url=<URL encode full MP3>",
             "hint": "ROBOT_AUDIO_PUBLIC_URL = IP LAN máy chạy server (không dùng 127.0.0.1). Chạy sync-lan-env.ps1 sau khi đổi Wi‑Fi.",
+        },
+    }
+
+
+@app.get("/robot/state")
+async def robot_state():
+    """Trạng thái robot gọn cho app (kết nối SDK)."""
+    sdk = robot_sdk_session_ok()
+    ip = ""
+    if robot and getattr(robot, "ip", None):
+        ip = str(robot.ip).strip()
+    if not ip and getattr(config, "ROBOT_IP", None):
+        ip = str(config.ROBOT_IP).strip()
+    pose = getattr(robot, "pose_state", None) if robot else None
+    return {
+        "registered": sdk,
+        "online": sdk,
+        "ip": ip or None,
+        "battery": None,
+        "mood": pose,
+        "robot_type": str(getattr(config, "ROBOT_TYPE", "") or ""),
+    }
+
+
+@app.get("/connect/diagnose")
+async def connect_diagnose():
+    """Gộp chẩn đoán nhanh — 1 request cho poll nền (app)."""
+    sdk = robot_sdk_session_ok()
+    ip = ""
+    if robot and getattr(robot, "ip", None):
+        ip = str(robot.ip).strip()
+    if not ip and getattr(config, "ROBOT_IP", None):
+        ip = str(config.ROBOT_IP).strip()
+    pose = getattr(robot, "pose_state", None) if robot else None
+    return {
+        "server": {
+            "ok": True,
+            "version": str(getattr(config, "GEMINI_MODEL", "") or "alpha-mini"),
+            "uptime_s": int(time.monotonic() - _SERVER_MONO_START),
+        },
+        "robot": {
+            "registered": sdk,
+            "ip": ip or None,
+            "online": sdk,
+            "battery": None,
+            "mood": pose,
+            "robot_type": str(getattr(config, "ROBOT_TYPE", "") or ""),
         },
     }
 

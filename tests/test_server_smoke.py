@@ -72,3 +72,36 @@ def test_qr_uses_cv2_when_pyzbar_is_unavailable(monkeypatch, qr_png):
     monkeypatch.setattr(qr_module, "_decode_with_pyzbar", unexpected_pyzbar_call)
     assert qr_module._CV2_OK is True
     assert qr_module.decode_qr_codes(png) == [{"text": payload, "format": "QR_CODE"}]
+
+
+def test_robot_state_contract(client):
+    response = client.get("/robot/state")
+    assert response.status_code == 200
+    body = response.json()
+    assert {"registered", "online", "ip", "battery", "mood", "robot_type"} <= body.keys()
+    assert body["registered"] is False
+    assert body["online"] is False
+    assert body["ip"] is None or isinstance(body["ip"], str)
+    assert isinstance(body["robot_type"], str)
+    assert body["battery"] is None or isinstance(body["battery"], (int, float))
+    assert body["mood"] is None or isinstance(body["mood"], str)
+
+
+def test_connect_diagnose_contract(client):
+    response = client.get("/connect/diagnose")
+    assert response.status_code == 200
+    body = response.json()
+    assert {"server", "robot"} <= body.keys()
+    assert {"ok", "version", "uptime_s"} <= body["server"].keys()
+    assert body["server"]["ok"] is True
+    assert isinstance(body["server"]["version"], str)
+    assert isinstance(body["server"]["uptime_s"], int)
+    assert body["server"]["uptime_s"] >= 0
+    robot = body["robot"]
+    assert {"registered", "online", "ip", "battery", "mood", "robot_type"} <= robot.keys()
+    assert robot["registered"] is False
+    assert robot["online"] is False
+    assert robot["ip"] is None or isinstance(robot["ip"], str)
+    assert isinstance(robot["robot_type"], str)
+    assert robot["battery"] is None or isinstance(robot["battery"], (int, float))
+    assert robot["mood"] is None or isinstance(robot["mood"], str)
