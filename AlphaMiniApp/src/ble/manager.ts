@@ -153,10 +153,10 @@ export class AlphaMiniBleClient {
         }
         const name = scanned?.name ?? scanned?.localName ?? '';
         rawCount++;
-        const matched = name.startsWith(BLE.NAME_PREFIX);
+        const matched = name.toUpperCase().startsWith(BLE.NAME_PREFIX);
         if (matched) { matchedCount++; }
         bleDiag('scan-device', {scanId, deviceId: maskedDeviceId(scanned?.id ?? ''), name: scanned?.name, localName: scanned?.localName, rssi: scanned?.rssi, serviceUUIDs: scanned?.serviceUUIDs, matched, reason: matched ? 'name-prefix-match' : name ? 'name-prefix-mismatch' : 'missing-name'});
-        if (name.startsWith(BLE.NAME_PREFIX)) {
+        if (matched) {
           this.onEvent({
             type: 'device-found',
             device: {
