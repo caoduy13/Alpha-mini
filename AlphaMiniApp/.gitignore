@@ -73,3 +73,10 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Local build and device diagnostics (keep files on disk)
+*.log
+logcat*.txt
+live-logcat.*
+crash-*.txt
+lc.out
