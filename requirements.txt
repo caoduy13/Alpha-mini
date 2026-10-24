@@ -1,4 +1,4 @@
-# Alpha Mini Server — Python 3.11+ khuyến nghị. SDK UBTECH (mini) cài riêng theo hãng nếu chưa có.
+# Alpha Mini Server: Windows x64 / Python 3.12 verified; UBTECH SDK installed from PyPI below.
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
 google-genai>=1.30,<2
