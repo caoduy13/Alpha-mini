@@ -1,0 +1,50 @@
+{
+  "_kind": "robot-capture-redacted",
+  "_source": "Real indications from Mini_EAA014UBT00012017 (firmware v2.2.5.917) on 2026-10-25 for the 19-byte empty handshake (docs/ble-protocol.md section 9). Only the 36 sessionId bytes were replaced by a fake UUID of equal length; every other byte, including groupId/fragment trailers, is as captured.",
+  "fakeSessionId": "00000000-0000-4000-8000-000000000000",
+  "runs": [
+    {
+      "name": "run1",
+      "firstIndicationAt": "2026-10-25T01:00:17.431+07:00",
+      "groupId": 29179,
+      "fragmentsHex": [
+        "FBBF01004C0A0508E8071801123D080171FB0001",
+        "1A0255532A0A76322E322E352E39313771FB0002",
+        "30024A2430303030303030302D30303071FB0003",
+        "302D343030302D383030302D3030303071FB0004",
+        "303030303030303052013101ED71FB0005"
+      ]
+    },
+    {
+      "name": "run2",
+      "firstIndicationAt": "2026-10-25T01:00:55.400+07:00",
+      "groupId": 9001,
+      "fragmentsHex": [
+        "FBBF01004C0A0508E8071801123D080123290001",
+        "1A0255532A0A76322E322E352E39313723290002",
+        "30024A2430303030303030302D30303023290003",
+        "302D343030302D383030302D3030303023290004",
+        "303030303030303052013101ED23290005"
+      ]
+    }
+  ],
+  "expected": {
+    "commandId": 1000,
+    "sendSerial": 0,
+    "responseSerial": 1,
+    "versionCode": 0,
+    "msgType": 0,
+    "resultCode": 0,
+    "body": {
+      "isSuccess": true,
+      "resultCode": false,
+      "sysLan": "US",
+      "sysCountry": "",
+      "robotSoftVersionName": "v2.2.5.917",
+      "btInterfaceVersion": 2,
+      "androidFirmwareVersion": "",
+      "errorCode": 0,
+      "versionInfo": "1"
+    }
+  }
+}

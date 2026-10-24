@@ -1,0 +1,59 @@
+{
+  "_kind": "sdk-offline-synthetic",
+  "_source": "Generated offline with alpha-mini-oversea-edu-sdk-0.0.9 classes (GenGolden.java, VerifyProbe.java); fake Wi-Fi values, no robot involved. groupId is the SDK's own random choice, recorded so fragments can be compared byte-for-byte.",
+  "handshakeRequest": {
+    "sendSerial": 1,
+    "frameHex": "FBBF01000E0A0610012001280201ED",
+    "groupId": 1,
+    "fragmentsHex": [
+      "FBBF01000E0A0610012001280201ED00010001"
+    ]
+  },
+  "startNetworkConfig": {
+    "data": "{\"co\":4}",
+    "sendSerial": 2,
+    "frameHex": "FBBF01001D0A06082010022001120D0A087B22636F223A347D10A80101ED",
+    "groupId": 19386,
+    "fragmentsHex": [
+      "FBBF01001D0A06082010022001120D0A4BBA0001",
+      "087B22636F223A347D10A80101ED4BBA0002"
+    ]
+  },
+  "wifiConfig": {
+    "data": "{\"s\":\"Lab-WiFi-Test\",\"c\":\"WPA2\",\"p\":\"fake-pass-1234\",\"v\":\"0\",\"co\":2}",
+    "sendSerial": 3,
+    "frameHex": "FBBF0100590A0608201003200112490A447B2273223A224C61622D576946692D54657374222C2263223A2257504132222C2270223A2266616B652D706173732D31323334222C2276223A2230222C22636F223A327D10A80101ED",
+    "groupId": 3764,
+    "fragmentsHex": [
+      "FBBF0100590A0608201003200112490A0EB40001",
+      "447B2273223A224C61622D576946692D0EB40002",
+      "54657374222C2263223A2257504132220EB40003",
+      "2C2270223A2266616B652D706173732D0EB40004",
+      "31323334222C2276223A2230222C22630EB40005",
+      "6F223A327D10A80101ED0EB40006"
+    ]
+  },
+  "wifiConfigOpenUnicode": {
+    "data": "{\"s\":\"Open Lab É\",\"c\":\"N\",\"p\":\"\",\"v\":\"0\",\"co\":2}",
+    "sendSerial": 3,
+    "frameHex": "FBBF0100460A0608201003200112360A317B2273223A224F70656E204C616220C389222C2263223A224E222C2270223A22222C2276223A2230222C22636F223A327D10A80101ED",
+    "groupId": 1713,
+    "fragmentsHex": [
+      "FBBF0100460A0608201003200112360A06B10001",
+      "317B2273223A224F70656E204C61622006B10002",
+      "C389222C2263223A224E222C2270223A06B10003",
+      "22222C2276223A2230222C22636F223A06B10004",
+      "327D10A80101ED06B10005"
+    ]
+  },
+  "exitNetworkConfig": {
+    "data": "{\"co\":12}",
+    "sendSerial": 4,
+    "frameHex": "FBBF01001E0A06082010042001120E0A097B22636F223A31327D10A80101ED",
+    "groupId": 18607,
+    "fragmentsHex": [
+      "FBBF01001E0A06082010042001120E0A48AF0001",
+      "097B22636F223A31327D10A80101ED48AF0002"
+    ]
+  }
+}
