@@ -376,3 +376,126 @@ chỉ chứa tài liệu. Dừng sau chuẩn bị probe, chờ người dùng t�
 - PDF ở archive là nguồn mô tả thiết kế so sánh; không dùng thay bytecode hoặc trace runtime.
 - Archive và tài liệu vendor là dữ liệu tham khảo; không đưa APK/AAR, khóa hoặc dump chứa literal
   vendor vào Git trong commit tài liệu này.
+## 9. Probe PC trên robot thật — 2026-10-25 (UTC+07:00)
+
+Không có lượt nRF mới: người dùng xác nhận chưa thử nRF và cho phép probe từ PC.
+PC có MediaTek Bluetooth Adapter / Microsoft Bluetooth LE Enumerator trạng thái OK.
+Môi trường riêng `D:/Temp/ble-probe` dùng Python 3.12, bleak 3.0.2; không thay requirements
+hoặc venv dự án. Qua adb đã force-stop `com.alphaminiapp` và `no.nordicsemi.android.mcp`.
+
+Mỗi lượt quét 15 giây, chọn duy nhất tên bắt đầu Mini_ không phân biệt hoa/thường,
+connect, bật indication (characteristic chỉ có property indicate), write-with-response đúng
+19 byte ở mục 6, quan sát 10 giây rồi chủ động disconnect. Nghỉ 10 giây trước lượt quét 2.
+Không thay MTU, không gửi Wi-Fi, không đưa credential vào request.
+
+| Lượt | Quét / RSSI | Write bắt đầu → ACK | Indication đầu → cuối | Kết thúc |
+|---|---|---|---|---|
+| 1 | 00:59:58.896–01:00:14.217; raw 6, matched 1; -46 dBm | 01:00:17.342 → .371 | 01:00:17.431 → .550; 5 fragment | 01:00:27.381 vẫn connected; ngắt chủ động |
+| 2 | 01:00:37.507–52.555; raw 7, matched 1; -47 dBm | 01:00:55.339 → .369 | 01:00:55.400 → .535; 5 fragment | 01:01:05.381 vẫn connected; ngắt chủ động |
+
+Cùng robot `Mini_EAA014UBT00012017`, địa chỉ tại hai lượt `44:A8:35:62:53:2A`.
+Mỗi lượt nhận các ATT value dài 20, 20, 20, 20, 17 byte; bỏ trailer 4 byte mỗi fragment,
+ghép được core frame 77 byte. Group ID lượt 1 = 29179, lượt 2 = 9001; sequence 1–5.
+SDK `MiniBleProto` parsePacketMsg/unpack và lớp protobuf BluetoothShakeResponse giải mã
+được đúng một message mỗi lượt. Đây là trace thật, khác roundtrip giả lập ở mục 6.
+
+Kết quả header giống nhau ở hai lượt:
+
+- commandId = 1000; sendSerial = 0; responseSerial = 1.
+- versionCode = 0 (giá trị thực tế; không ép thành 1 theo suy luận từ builder tham chiếu).
+- msgType = MSG_TYPE_RESPONSE_COMPLETE (0); header.resultCode = 0.
+
+Toàn bộ trường BluetoothShakeResponse, giống nhau trừ sessionId mới theo từng lượt:
+
+- isSuccess = true; resultCode = false (bool mặc định, không phải mã lỗi).
+- sysLan = "US"; sysCountry = "".
+- robotSoftVersionName = "v2.2.5.917"; btInterfaceVersion = 2.
+- androidFirmwareVersion = ""; errorCode = 0; versionInfo = "1".
+- sessionId: có giá trị, 36 ký tự; che vì là credential phiên. Không commit giá trị thật.
+
+Kết luận có bằng chứng: firmware hiện tại chấp nhận framing/fragment trailer của probe
+19 byte và trả handshake thành công hai lần. Chưa chứng minh command/cid Wi-Fi, account
+binding hoặc BLE→LAN. btInterfaceVersion=2 không tự chứng minh có thể bỏ trailer ở request sau.
+Không có ngắt kết nối ngoài dự kiến trong cửa sổ quan sát.
+
+Evidence local (không commit raw vì response chứa sessionId):
+`D:/Temp/ble-probe/events.jsonl` (hex + timestamp millisecond), `run1.hex`, `run2.hex`,
+`run1-decoded.redacted.txt`, `run2-decoded.redacted.txt`, `probe.py`, `DecodeProbe.java`, `decode.py`.
+Java helper dùng chính codec/classes SDK và protobuf jar offline, kiểm tra group/sequence,
+length rồi parse envelope và body. Không nhúng AAR vào dự án. Các dòng hex dưới đây được che
+sessionId bằng XX; không dùng làm golden frame nguyên trạng có thể decode.
+
+## 10. AppId/AppKey và kiểm tra offline: phạm vi kết luận
+
+Đường code trong MainApp.apk tham chiếu:
+
+1. UBTGattServer$4.onCharacteristicWriteRequest → BleServer$BleDataReceiver.parseMessage:
+   unpack, lấy commandId=0, parse BluetoothHandShakeRequest.
+2. BleServer.onHandShake tại DEX offset 1e2e90 gọi checkServerState; hàm này đọc started
+   AtomicBoolean. Request schema chỉ có 7 trường đã liệt kê ở mục 3, không có AppId/AppKey/chữ ký.
+3. onHandShake kiểm tra uuid/sessionId và holder qua HandShakeKickOff/HandShakeHoldOn;
+   empty uuid đi nhánh lấy địa chỉ Bluetooth. handShake01 và replyHandShakePacketForKickOff/
+   HoldOn tạo BluetoothShakeResponse, trả command 1000 với responseSerial từ request.
+4. Các nhánh này so sánh holder/session, tạo session UUID, không gọi Cipher, MessageDigest,
+   Signature hay kiểm tra AppId/AppKey; postHandShakeStatus chỉ đăng callback sau phản hồi.
+
+Bằng chứng kết hợp schema + luồng điều khiển + probe thật: command 0 → 1000 này không cần
+AppId/AppKey/chữ ký và không có bước kiểm tra offline các credential ấy trong đường đã rà soát.
+Probe gửi body rỗng vẫn nhận isSuccess=true hai lần. Điều này không đồng nghĩa bỏ kiểm tra
+session/holder, và không suy rộng sang cloud/account binding hoặc mọi firmware.
+SDK client yêu cầu AppId/AppKey khi khởi tạo là lớp khác. Chưa có blocker AppKey cho handshake
+đã thử; nếu Wi-Fi/binding sau này yêu cầu credential UBTECH thì dừng để chọn credential/license
+hợp lệ, dùng app chính hãng cấu hình Wi-Fi rồi LAN, hoặc hoãn nhánh binding. Không sao chép key.
+APK tham chiếu V2.2.4#1024 khác phiên bản robot báo v2.2.5.917; chỉ các điểm probe xác nhận mới
+được coi là đã kiểm chứng trên firmware này.
+
+## 11. Kế hoạch triển khai chờ duyệt — chưa sửa app
+
+Tự viết codec/protobuf TypeScript theo schema đã kiểm tra; không nhúng AAR, không đưa key SDK
+vào app. Khi chuyển runtime sẽ thay hẳn giao thức AES/JSON cũ, không chạy hai giao thức song song
+và không fallback sang auth cũ. Giữ các thông số scan/timeout/MTU ngoài phạm vi thử nghiệm này.
+
+1. Commit golden vectors và test codec thuần: frame SDK offline có dữ liệu giả, fragment/trailer,
+   envelope/header/body, partial/multiple frames, sai length, thiếu/lặp/đảo fragment, sai serial.
+   Dùng trace thật kiểm tra cấu trúc/giá trị không nhạy cảm; fixture công khai thay sessionId bằng
+   giá trị giả rồi encode lại bằng SDK, đánh dấu synthetic, không gọi đó là nguyên bản capture.
+2. Commit codec/protobuf TS và chuyển runtime handshake một lần: protocol.ts, responseParse.ts,
+   constants.ts, manager.ts; bỏ auth AES/JSON/method-1 fallback. Đường chưa có Wi-Fi mới phải dừng
+   rõ sau handshake, không gọi Wi-Fi cũ và không báo provisioning thành công. Test fail trước/pass
+   sau, verify, build APK test; robot xác nhận command 1000, responseSerial, isSuccess và session.
+3. Commit Wi-Fi sau khi rà đủ request command/cid và semantics của firmware: protobuf + JSON,
+   mã lỗi/progress, security/capabilities/BSSID nếu cần. Không suy ra success chỉ vì write ACK.
+   Test golden request/response và negative cases; thử trên robot sau handshake đã ổn định,
+   người dùng tự nhập mật khẩu. Chỉ một thay đổi giao thức mỗi vòng, không đổi timeout để che lỗi.
+4. Commit tích hợp BLE→LAN và diagnostics/tests: che sessionId/password/authCode/codeVerifier,
+   kiểm tra trạng thái thành công thật và /robot/connect + /robot/state; verify, assembleRelease,
+   thử độc lập không Metro. Không sửa server nếu chưa có bằng chứng cần thiết.
+
+Mỗi commit chạy verify; mỗi mốc phần cứng lưu timestamp, TX/RX đã che và kết quả robot.
+Dừng nếu phát sinh yêu cầu AppKey/license hoặc schema chưa đủ rõ; không triển khai binding theo đoán.
+Phạm vi dự kiến 5 phần logic / khoảng 6–8 file như mục 7, cộng codec và test; số file cụ thể chốt
+sau review. Kế hoạch này chưa được phê duyệt triển khai, không merge nhánh tài liệu ở bước này.
+
+## 12. ATT indication evidence (XX = redacted session byte)
+
+
+Run 1:
+
+```text
+2026-10-25T01:00:17.431+07:00 FB BF 01 00 4C 0A 05 08 E8 07 18 01 12 3D 08 01 71 FB 00 01
+2026-10-25T01:00:17.461+07:00 1A 02 55 53 2A 0A 76 32 2E 32 2E 35 2E 39 31 37 71 FB 00 02
+2026-10-25T01:00:17.492+07:00 30 02 4A 24 XX XX XX XX XX XX XX XX XX XX XX XX 71 FB 00 03
+2026-10-25T01:00:17.520+07:00 XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX 71 FB 00 04
+2026-10-25T01:00:17.550+07:00 XX XX XX XX XX XX XX XX 52 01 31 01 ED 71 FB 00 05
+```
+
+
+Run 2:
+
+```text
+2026-10-25T01:00:55.400+07:00 FB BF 01 00 4C 0A 05 08 E8 07 18 01 12 3D 08 01 23 29 00 01
+2026-10-25T01:00:55.430+07:00 1A 02 55 53 2A 0A 76 32 2E 32 2E 35 2E 39 31 37 23 29 00 02
+2026-10-25T01:00:55.459+07:00 30 02 4A 24 XX XX XX XX XX XX XX XX XX XX XX XX 23 29 00 03
+2026-10-25T01:00:55.504+07:00 XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX 23 29 00 04
+2026-10-25T01:00:55.535+07:00 XX XX XX XX XX XX XX XX 52 01 31 01 ED 23 29 00 05
+```
