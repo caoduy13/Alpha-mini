@@ -65,3 +65,13 @@ it('retrying failed provisioning starts exactly one scan', async () => {
   await act(async () => { button('Th\u1eed l\u1ea1i').props.onPress(); });
   expect(ble.startDeviceScan).toHaveBeenCalledTimes(1);
 });
+
+it('shows a scan error and keeps the existing scan-again action usable', async () => {
+  await openScanner();
+  await act(async () => { scanCallback(Object.assign(new Error('Bluetooth scan unavailable'), {errorCode: 102}) as BleError, null); });
+  expect(tree.root.findAllByType(Text).some(t => t.props.children === 'Bluetooth scan unavailable')).toBe(true);
+  (ble.startDeviceScan as jest.Mock).mockClear();
+  await act(async () => { button('Qu\u00e9t l\u1ea1i').props.onPress(); });
+  expect(ble.startDeviceScan).toHaveBeenCalledTimes(1);
+  expect(tree.root.findAllByType(Text).some(t => t.props.children === 'Bluetooth scan unavailable')).toBe(false);
+});

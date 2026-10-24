@@ -177,6 +177,9 @@ export function BLEProvisioningScreen({ navigation }: Props) {
             ) : (
               <Text style={styles.body}>Chọn robot trong danh sách.</Text>
             )}
+            {error ? (
+              <Text accessibilityRole="alert" style={styles.failTxt}>{error}</Text>
+            ) : null}
             <FlatList
               data={devices}
               keyExtractor={item => item.id}
