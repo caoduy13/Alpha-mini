@@ -1,10 +1,10 @@
 # Alpha Mini Server
 
-## C?i m?i tr??ng server
+## Cài môi trường server
 
-?? ki?m ch?ng tr?n Windows x64, PowerShell v? Python 3.12. M?i tr??ng ?ang d?ng tr??c ??t n?y l? Python 3.13.12; ch?a ki?m th? l?i to?n b? tr?n Linux/macOS hay robot th?t.
+Đã kiểm chứng trên Windows x64, PowerShell và Python 3.12. Môi trường đang dùng trước đợt này là Python 3.13.12; chưa kiểm thử lại toàn bộ trên Linux/macOS hay robot thật.
 
-T? th? m?c g?c c?a b?n clone, ch?y l?n l??t:
+Từ thư mục gốc của bản clone, chạy lần lượt:
 
 ```powershell
 python --version
@@ -12,37 +12,37 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --index-url https://pypi.org/simple -r requirements.txt
 ```
 
-`python` trong c?c l?nh tr?n ph?i tr? t?i Python 3.12. Kh?ng c?n activate venv v? c?c l?nh d?ng ???ng d?n Python c? th?. Requirements hi?n v?n d?ng kho?ng phi?n b?n cho c?c dependency ?? c?, n?n kh?ng ph?i lockfile to?n b? m?i tr??ng.
+`python` trong các lệnh trên phải trỏ tới Python 3.12. Không cần activate venv vì các lệnh dùng đường dẫn Python cụ thể. Requirements hiện vẫn dùng khoảng phiên bản cho các dependency đã có, nên không phải lockfile toàn bộ môi trường.
 
 ### SDK UBTECH
 
-Requirements c?i `alphamini==1.2.0` tr?c ti?p t? PyPI, kh?ng c?n l?y wheel trong archive ho?c copy `site-packages` t? m?y c?. ?? ki?m ch?ng t?i/c?i b?ng pip trong venv m?i. Package n?y cung c?p module `mini`; c?c dependency c?a SDK ???c pip c?i t? ??ng.
+Requirements cài `alphamini==1.2.0` trực tiếp từ PyPI, không cần lấy wheel trong archive hoặc copy `site-packages` từ máy cũ. Đã kiểm chứng tải/cài bằng pip trong venv mới. Package này cung cấp module `mini`; các dependency của SDK được pip cài tự động.
 
-Metadata c?a package ghi license GPLv3, nh?ng file `alphamini-1.2.0.dist-info/LICENSE` ?i k?m ghi MIT (Copyright 2020 UBTECH). ??y l? s? kh?c bi?t trong ch?nh package; c?n x?c nh?n v?i nh? cung c?p tr??c khi ph?n ph?i l?i SDK. Repo n?y kh?ng ??ng g?i SDK v?o vendor.
+Metadata của package ghi license GPLv3, nhưng file `alphamini-1.2.0.dist-info/LICENSE` đi kèm ghi MIT (Copyright 2020 UBTECH). Đây là sự khác biệt trong chính package; cần xác nhận với nhà cung cấp trước khi phân phối lại SDK. Repo này không đóng gói SDK vào vendor.
 
-SDK c? m? protobuf c?. Ph?i ??t bi?n sau trong **m?i c?a s? PowerShell**, tr??c khi ch?y Python/import server ho?c SDK:
+SDK có mã protobuf cũ. Phải đặt biến sau trong **mỗi cửa sổ PowerShell**, trước khi chạy Python/import server hoặc SDK:
 
 ```powershell
 $env:PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = 'python'
 ```
 
-N?u thi?u bi?n n?y, import SDK ?? t?i hi?n l?i `Descriptors cannot be created directly` v?i protobuf 5.29.6. Bi?n ???c ??t tr??c process, kh?ng ch? th?m v?o `.env`, v? m?t s? import di?n ra tr??c khi server n?p `.env`.
+Nếu thiếu biến này, import SDK đã tái hiện lỗi `Descriptors cannot be created directly` với protobuf 5.29.6. Biến được đặt trước process, không chỉ thêm vào `.env`, vì một số import diễn ra trước khi server nạp `.env`.
 
-### C?u h?nh
+### Cấu hình
 
-T?o `.env` local t? m?u:
+Tạo `.env` local từ mẫu:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-?i?n c?u h?nh ri?ng tr?n m?y: `GEMINI_API_KEY`; khi d?ng robot, ki?m tra `ROBOT_ENABLED`, `ROBOT_IP`, `ROBOT_PORT`, `ROBOT_TYPE`, `ROBOT_AUTO_DISCOVER`. C?u h?nh server g?m `SERVER_HOST`, `SERVER_PORT`, `ROBOT_AUDIO_PUBLIC_URL`. README kh?ng ch?a gi? tr? key/token ho?c c?u h?nh robot ri?ng.
+Điền cấu hình riêng trên máy: `GEMINI_API_KEY`; khi dùng robot, kiểm tra `ROBOT_ENABLED`, `ROBOT_IP`, `ROBOT_PORT`, `ROBOT_TYPE`, `ROBOT_AUTO_DISCOVER`. Cấu hình server gồm `SERVER_HOST`, `SERVER_PORT`, `ROBOT_AUDIO_PUBLIC_URL`. README không chứa giá trị key/token hoặc cấu hình robot riêng.
 
-HTTPS d?ng `SERVER_SSL_ENABLED`, `SERVER_SSL_CERTFILE`, `SERVER_SSL_KEYFILE`; ch?ng ch?/kh?a local n?m ? `ssl/server.crt` v? `ssl/server.key`. Ch?ng kh?ng c? trong b?n clone. Kh?ng commit `.env` ho?c private key. Ki?m th? b?n d??i d?ng HTTP v? t?t robot, kh?ng c?n t?o ch?ng ch?. Ch?a ki?m ch?ng c?p ch?ng ch? ho?c k?t n?i robot trong quy tr?nh n?y.
+HTTPS dùng `SERVER_SSL_ENABLED`, `SERVER_SSL_CERTFILE`, `SERVER_SSL_KEYFILE`; chứng chỉ/khóa local nằm ở `ssl/server.crt` và `ssl/server.key`. Chúng không có trong bản clone. Không commit `.env` hoặc private key. Kiểm thử bên dưới dùng HTTP và tắt robot, không cần tạo chứng chỉ. Chưa kiểm chứng cấp chứng chỉ hoặc kết nối robot trong quy trình này.
 
-### Ki?m tra local kh?ng g?i AI/robot
+### Kiểm tra local không gọi AI/robot
 
-C?c gi? tr? b?n d??i ch? ph?c v? ki?m tra local; chu?i API key l? gi? tr? gi?, kh?ng ph?i credential. Kh?ng d?ng k?t qu? n?y ?? k?t lu?n AI hay robot ?? k?t n?i ???c.
+Các giá trị bên dưới chỉ phục vụ kiểm tra local; chuỗi API key là giá trị giả, không phải credential. Không dùng kết quả này để kết luận AI hay robot đã kết nối được.
 
 ```powershell
 $env:GEMINI_API_KEY = 'offline-import-check-not-a-real-key'
@@ -54,7 +54,7 @@ $env:SERVER_PORT = '18763'
 .\.venv\Scripts\python.exe -B -c "import ws_mini_compat; from mini import mini_sdk; import cv2, numpy; from pyzbar.pyzbar import decode"
 ```
 
-?? ch?y c? ki?m tra app trong script verify, c?n Node/npm v? dependency app:
+Để chạy cả kiểm tra app trong script verify, cần Node/npm và dependency app:
 
 ```powershell
 Push-Location AlphaMiniApp
@@ -63,12 +63,12 @@ Pop-Location
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1
 ```
 
-`npm ci` ph?i ?p d?ng ?? ba patch hi?n c?. Verify ch?y server import, TypeScript v? Jest; hi?n ch?a c? test Python. OpenCV d?ng package headless v? server kh?ng c?n GUI; QR ???c ki?m tra b?ng import OpenCV, NumPy v? pyzbar tr?n Windows.
+`npm ci` phải áp dụng đủ ba patch hiện có. Verify chạy server import, TypeScript và Jest; hiện chưa có test Python. OpenCV dùng package headless vì server không cần GUI; QR được kiểm tra bằng import OpenCV, NumPy và pyzbar trên Windows.
 
-### Kh?i ch?y
+### Khởi chạy
 
 ```powershell
 .\.venv\Scripts\python.exe -B server.py
 ```
 
-V?i c?u h?nh ki?m th? tr?n, server ?? tr? HTTP 200 t?i `http://127.0.0.1:18763/openapi.json`. D?ng b?ng Ctrl+C. Khi ch?y th?t, m? c?a s? PowerShell m?i, ??t l?i bi?n t??ng th?ch protobuf, ?i?n `.env` b?ng c?u h?nh ri?ng r?i ch?y c?ng l?nh; kh?ng gi? c?c bi?n ki?m th? gi?. C?c t?ch h?p AI, TTS b?n ngo?i, HTTPS v? robot c?n c?u h?nh/ki?m tra ri?ng.
+Với cấu hình kiểm thử trên, server đã trả HTTP 200 tại `http://127.0.0.1:18763/openapi.json`. Dừng bằng Ctrl+C. Khi chạy thật, mở cửa sổ PowerShell mới, đặt lại biến tương thích protobuf, điền `.env` bằng cấu hình riêng rồi chạy cùng lệnh; không giữ các biến kiểm thử giả. Các tích hợp AI, TTS bên ngoài, HTTPS và robot cần cấu hình/kiểm tra riêng.
