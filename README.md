@@ -63,7 +63,7 @@ Pop-Location
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1
 ```
 
-`npm ci` phải áp dụng đủ ba patch hiện có. Verify chạy server import, TypeScript và Jest; hiện chưa có test Python. OpenCV dùng package headless vì server không cần GUI; QR được kiểm tra bằng import OpenCV, NumPy và pyzbar trên Windows.
+`npm ci` phải áp dụng đủ ba patch hiện có. Verify chạy server import, TypeScript và Jest; pytest chạy 5 smoke test offline trong `tests/`. OpenCV dùng package headless vì server không cần GUI; QR được kiểm tra bằng import OpenCV, NumPy và pyzbar trên Windows.
 
 ### Khởi chạy
 
@@ -72,3 +72,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1
 ```
 
 Với cấu hình kiểm thử trên, server đã trả HTTP 200 tại `http://127.0.0.1:18763/openapi.json`. Dừng bằng Ctrl+C. Khi chạy thật, mở cửa sổ PowerShell mới, đặt lại biến tương thích protobuf, điền `.env` bằng cấu hình riêng rồi chạy cùng lệnh; không giữ các biến kiểm thử giả. Các tích hợp AI, TTS bên ngoài, HTTPS và robot cần cấu hình/kiểm tra riêng.
+
+### Offline server smoke tests
+
+Install test dependencies into the same venv used for verification:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -B -m pytest -q tests
+```
+
+`requirements-dev.txt` adds only pytest; httpx is already installed by google-genai and is used by FastAPI TestClient. Tests set a fake API key, disable the robot and OpenClaw file bridge before importing the server, and exercise lifespan through TestClient. They do not call AI, TTS or an external network. QR images are generated in memory with OpenCV. Verify fails with installation instructions if pytest is missing.

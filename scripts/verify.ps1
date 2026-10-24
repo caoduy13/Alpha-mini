@@ -59,19 +59,21 @@ if (-not $Python) {
 Write-Host "Python: $Python"
 Invoke-Check -Name "Server import" -Directory $root -Command $Python -CommandArgs @("-B", "-c", "import server")
 
-# Restrict Python test discovery to server tests, excluding reference projects.
-$pythonTests = @(Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Name -match '^(test_.*|.*_test)\.py$' } | ForEach-Object { $_.FullName })
-foreach ($name in @("tests", "test")) {
-    $directory = Join-Path $root $name
-    if (Test-Path -LiteralPath $directory -PathType Container) {
-        $pythonTests += @(Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object { $_.Name -match '^(test_.*|.*_test)\.py$' } | ForEach-Object { $_.FullName })
-    }
+# Smoke tests are mandatory. Missing pytest is a failed check, never a skip.
+$previousPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Continue"
+    & $Python -B -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('pytest') else 1)"
+    $pytestAvailable = ($LASTEXITCODE -eq 0)
 }
-if ($pythonTests.Count -gt 0) {
-    Invoke-Check -Name "Server pytest" -Directory $root -Command $Python -CommandArgs (@("-B", "-m", "pytest") + $pythonTests)
+finally { $ErrorActionPreference = $previousPreference }
+if (-not $pytestAvailable) {
+    Write-Host "Missing pytest. Install with: $Python -m pip install -r requirements-dev.txt"
+    $results.Add([pscustomobject]@{ Check = "Server pytest"; ExitCode = 1 })
+    Write-Host "CHECK_RESULT: Server pytest exit=1"
 }
 else {
-    Write-Host "SKIP: Server pytest (no existing Python tests)."
+    Invoke-Check -Name "Server pytest" -Directory $root -Command $Python -CommandArgs @("-B", "-m", "pytest", "-q", "tests")
 }
 
 $npx = if (Get-Command npx.cmd -ErrorAction SilentlyContinue) { "npx.cmd" } else { "npx" }
