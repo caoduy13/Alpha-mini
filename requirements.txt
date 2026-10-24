@@ -11,3 +11,11 @@ aiohttp>=3.8,<4
 # Theo khai báo của google-genai (>=13). Nếu mini_sdk robot báo lỗi WebSocket, thử hạ google-genai hoặc cập nhật SDK.
 websockets>=13,<17
 # Tuỳ chọn: ROBOT_TTS_HTTP_ENGINE=google — pip install google-cloud-texttospeech
+
+# Direct imports verified against the existing Python 3.13.12 environment.
+alphamini==1.2.0
+protobuf==5.29.6
+starlette==1.0.0
+numpy==2.4.4
+opencv-python-headless==4.13.0.92
+pyzbar==0.1.9
