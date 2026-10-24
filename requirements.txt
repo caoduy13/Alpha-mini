@@ -18,4 +18,9 @@ protobuf==5.29.6
 starlette==1.0.0
 numpy==2.4.4
 opencv-python-headless==4.13.0.92
+# QR scan: pyzbar (libzbar) đọc chính xác hơn cv2.QRCodeDetector trên QR nghiêng/mờ.
+#   Windows: wheel có sẵn DLL libzbar — chỉ cần `pip install pyzbar`.
+#   Linux:   apt install libzbar0  trước.
+#   macOS:   brew install zbar     trước.
+# Nếu env không cài được libzbar → server vẫn fallback cv2 (xem qr_module.py).
 pyzbar==0.1.9
