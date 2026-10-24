@@ -105,3 +105,15 @@ def test_connect_diagnose_contract(client):
     assert isinstance(robot["robot_type"], str)
     assert robot["battery"] is None or isinstance(robot["battery"], (int, float))
     assert robot["mood"] is None or isinstance(robot["mood"], str)
+
+
+def test_robot_diagnostic_logs_redact_secrets(client, caplog):
+    import logging
+    import server
+    with caplog.at_level(logging.INFO, logger="server"):
+        server._robot_diag("redaction-test", payload={"password": "private-wifi", "token": "private-token", "salt": "private-salt", "AES_KEY": "private-aes"}, message='token=private-inline password="private-inline-password"')
+    messages = "\n".join(record.getMessage() for record in caplog.records if "[ROBOT-DIAG]" in record.getMessage())
+    assert "redaction-test" in messages
+    for secret in ["private-wifi", "private-token", "private-salt", "private-aes", "private-inline", "private-inline-password"]:
+        assert secret not in messages
+    assert "[REDACTED]" in messages

@@ -1,3 +1,4 @@
+import { bleDiag } from '../ble/diagnostics';
 import axios, { type AxiosError } from 'axios';
 import { classifyError, type ConnError } from '../api/client';
 
@@ -129,6 +130,7 @@ export async function runConnectionChain(
 
   const signal = config.signal;
   const baseURL = normalizeBaseUrl(config.serverUrl);
+  bleDiag('lan-chain-start', {serverUrl: baseURL, authHeaderPresent: Boolean(config.token)});
   const headers: Record<string, string> = {};
   if (config.token?.trim()) {
     headers['X-Alphamini-Token'] = config.token.trim();
@@ -137,6 +139,7 @@ export async function runConnectionChain(
   const setStep = (id: StepId, patch: Partial<ChainStep>) => {
     const s = steps.find(x => x.id === id)!;
     Object.assign(s, patch);
+    bleDiag('lan-step', {id, status: s.status, endpoint: s.endpoint, durationMs: s.durationMs, error: s.error});
     if (patch.status === 'failed') {
       result.status = 'failed';
       result.failedStepId = id;

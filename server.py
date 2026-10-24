@@ -31,6 +31,28 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 log = logging.getLogger(__name__)
+
+
+def _robot_diag(event: str, **fields) -> None:
+    """Observation only: redact diagnostic fields and never affect SDK control flow."""
+    def safe(value):
+        if isinstance(value, dict):
+            return {str(k): "[REDACTED]" if re.search(r"password|passphrase|passwd|pwd|token|salt|aes.*key|authorization|secret|credential", str(k), re.I) else safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [safe(v) for v in value]
+        if isinstance(value, str):
+            for name in ("GEMINI_API_KEY", "FPT_AI_TTS_API_KEY"):
+                secret = getattr(config, name, "")
+                if secret:
+                    value = value.replace(str(secret), "[REDACTED]")
+            value = re.sub(r"\b(?:[a-f\d]{2}[\s:]*){8,}", "[REDACTED_HEX]", value, flags=re.I)
+            return re.sub(r"([\"']?(?:password|passphrase|passwd|pwd|token|salt|aes[_-]?key|authorization|secret)[\"']?\s*[:=]\s*)(\"(?:\\.|[^\"\\])*\"|'[^']*'|[^\s,;}]+)", r"\1[REDACTED]", value, flags=re.I)
+        return value
+    try:
+        log.info("[ROBOT-DIAG] %s", json.dumps({"event": event, "at": time.time(), **safe(fields)}, ensure_ascii=True, default=str))
+    except Exception:
+        pass
+
 ws_mini_compat.apply_mini_websocket_compat()
 
 # Uptime cho GET /connect/diagnose (monotonic — không lùi khi đổi giờ hệ thống).
@@ -1989,21 +2011,33 @@ class AlphaMiniClient:
         _set_robot_type_from_config()
         log.info("🤖 Robot SDK: ROBOT_TYPE=%s", config.ROBOT_TYPE)
         device = WiFiDevice(name="AlphaMini", address=self.ip)
-        self.connected = await mini_sdk.connect(device)
+        diag_started = time.monotonic()
+        _robot_diag("sdk-connect-start", ip=self.ip, robot_type=config.ROBOT_TYPE)
+        try:
+            self.connected = await mini_sdk.connect(device)
+        except Exception as error:
+            _robot_diag("sdk-connect-error", ip=self.ip, elapsed_ms=(time.monotonic() - diag_started) * 1000, error_type=type(error).__name__, error=str(error))
+            raise
+        _robot_diag("sdk-connect-result", ip=self.ip, connected=self.connected, elapsed_ms=(time.monotonic() - diag_started) * 1000)
         if not self.connected:
             raise RuntimeError(f"Cannot connect to robot at {self.ip}")
         self.pose_state = None
         self._need_stop_before_next_dance = False
 
+        diag_program_started = time.monotonic()
+        _robot_diag("enter-program-start", ip=self.ip)
         try:
             prog_ok = await mini_sdk.enter_program()
         except asyncio.CancelledError:
+            _robot_diag("enter-program-error", ip=self.ip, error_type="CancelledError")
             # Một số firmware/SDK có thể huỷ await nội bộ khi chuyển mode; không để crash request /chat.
             prog_ok = False
             log.warning("enter_program() bị huỷ (CancelledError) — bỏ qua và tiếp tục phiên robot")
         except Exception as e:
+            _robot_diag("enter-program-error", ip=self.ip, error_type=type(e).__name__, error=str(e))
             prog_ok = False
             log.warning("enter_program() lỗi: %s", e)
+        _robot_diag("enter-program-result", ip=self.ip, success=bool(prog_ok), elapsed_ms=(time.monotonic() - diag_program_started) * 1000)
         if not prog_ok:
             log.warning(
                 "enter_program() không báo Success — robot có thể chưa sẵn sàng nhận PlayAction/MoveRobot; "
@@ -2014,7 +2048,13 @@ class AlphaMiniClient:
         if not self.connected:
             return
         from mini import mini_sdk
-        await mini_sdk.release()
+        _robot_diag("sdk-disconnect-start", ip=self.ip)
+        try:
+            await mini_sdk.release()
+        except Exception as error:
+            _robot_diag("sdk-disconnect-error", ip=self.ip, error_type=type(error).__name__, error=str(error))
+            raise
+        _robot_diag("sdk-disconnect-complete", ip=self.ip)
         self.connected = False
         self.pose_state = None
         self._need_stop_before_next_dance = False
@@ -2576,7 +2616,10 @@ async def _lan_robot_connect_candidates() -> list[str]:
 
             _set_robot_type_from_config()
             tout = max(2, int(float(getattr(config, "ROBOT_DISCOVER_TIMEOUT_SEC", 8) or 8)))
+            diag_scan_started = time.monotonic()
+            _robot_diag("lan-discovery-start", timeout_sec=tout)
             devices = await mini_sdk.get_device_list(tout)
+            _robot_diag("lan-discovery-result", elapsed_ms=(time.monotonic() - diag_scan_started) * 1000, device_count=len(devices) if isinstance(devices, (list, tuple)) else None)
             picked = _pick_device_address(list(devices or []))
             if picked:
                 add(picked)
@@ -2677,6 +2720,7 @@ async def connect_robot():
     for attempt in range(1, tries + 1):
         try:
             candidates = await _lan_robot_connect_candidates()
+            _robot_diag("connect-candidates", attempt=attempt, candidates=candidates)
         except asyncio.CancelledError as e:
             log.warning("Lấy danh sách IP robot bị hủy; dùng ROBOT_IP cấu hình (%s)", e)
             candidates = [str(getattr(config, "ROBOT_IP", "") or "").strip()]
@@ -2687,6 +2731,7 @@ async def connect_robot():
             return
         for ip_try in candidates:
             try:
+                _robot_diag("connect-attempt", attempt=attempt, ip=ip_try)
                 robot = AlphaMiniClient(ip_try)
                 await robot.connect()
                 log.info("🤖 Robot connected: %s (attempt %s/%s)", ip_try, attempt, tries)
@@ -3590,6 +3635,7 @@ async def robot_scan(timeout: int = 6):
 @app.post("/robot/connect")
 async def robot_connect(timeout: int = 6):
     global robot, _LAST_ROBOT_CONNECT_ERROR
+    _robot_diag("http-connect-start", timeout_sec=timeout)
     candidates: list[str] = []
     device_name_by_ip: dict[str, str] = {}
 
@@ -3597,7 +3643,10 @@ async def robot_connect(timeout: int = 6):
         from mini import mini_sdk
 
         _set_robot_type_from_config()
+        diag_scan_started = time.monotonic()
+        _robot_diag("lan-discovery-start", timeout_sec=timeout)
         devices = await mini_sdk.get_device_list(timeout)
+        _robot_diag("lan-discovery-result", elapsed_ms=(time.monotonic() - diag_scan_started) * 1000, device_count=len(devices) if isinstance(devices, (list, tuple)) else None)
         for d in list(devices or []):
             addr = (getattr(d, "address", "") or "").strip()
             if not addr:
@@ -3620,18 +3669,21 @@ async def robot_connect(timeout: int = 6):
             if ip not in candidates:
                 candidates.append(ip)
 
+    _robot_diag("http-connect-candidates", candidates=candidates)
     if not candidates:
         raise HTTPException(status_code=404, detail="Không quét thấy robot trong LAN")
 
     last_err: Exception | None = None
     for ip_try in candidates:
         try:
+            _robot_diag("http-connect-attempt", ip=ip_try)
             new_client = AlphaMiniClient(ip_try)
             await new_client.connect()
             robot = new_client
             config.ROBOT_IP = ip_try
             _persist_robot_ip_to_dotenv(ip_try)
             _LAST_ROBOT_CONNECT_ERROR = None
+            _robot_diag("http-connect-success", ip=ip_try)
             return {
                 "connected": True,
                 "robot_ip": robot.ip,
@@ -3639,6 +3691,7 @@ async def robot_connect(timeout: int = 6):
                 "candidate_count": len(candidates),
             }
         except Exception as e:
+            _robot_diag("http-connect-error", ip=ip_try, error_type=type(e).__name__, error=str(e))
             last_err = e
             _LAST_ROBOT_CONNECT_ERROR = str(e)
             continue

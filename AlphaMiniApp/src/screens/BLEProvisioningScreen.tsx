@@ -1,3 +1,4 @@
+import { bleDiag, maskedDeviceId } from '../ble/diagnostics';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -56,6 +57,7 @@ export function BLEProvisioningScreen({ navigation }: Props) {
 
   useEffect(() => {
     const sub = getBleManager().onStateChange(state => {
+      bleDiag('adapter-state', {state});
       setBtOn(state === State.PoweredOn);
     }, true);
     return () => sub.remove();
@@ -63,6 +65,7 @@ export function BLEProvisioningScreen({ navigation }: Props) {
 
   const refreshPerm = useCallback(async () => {
     const r = await requestBlePermissions();
+    bleDiag('permission-gate', {ok: r.ok, missing: r.missing});
     setPermOk(r.ok);
   }, []);
 
@@ -100,6 +103,7 @@ export function BLEProvisioningScreen({ navigation }: Props) {
   }
 
   async function onSuccessNext() {
+    bleDiag('ble-to-lan', {suggestedRobotIp: resultIp, destination: 'Settings', bleIpIsDisplayOnly: true});
     await setOnboardingDone(true);
     navigation.reset({
       index: 1,
@@ -195,6 +199,7 @@ export function BLEProvisioningScreen({ navigation }: Props) {
                 <Pressable
                   style={styles.deviceRow}
                   onPress={() => {
+                    bleDiag('device-selected', {deviceId: maskedDeviceId(item.id), name: item.name, rssi: item.rssi});
                     setSelectedId(item.id);
                     setUiStep(3);
                   }}>

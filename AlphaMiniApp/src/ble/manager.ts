@@ -1,6 +1,7 @@
+import { bleDiag, bleErrorFields, describeDiagnosticFrame, maskedDeviceId, rememberDiagnosticSecrets } from './diagnostics';
 import { BleManager, Device, Subscription } from 'react-native-ble-plx';
 import { BLE } from './constants';
-import { bytesToBase64, base64ToBytes, bytesToHex } from './encoding';
+import { bytesToBase64, base64ToBytes } from './encoding';
 import { buildAuthPacket, buildWifiConfigPacket } from './protocol';
 import {
   extractWifiIp,
@@ -59,9 +60,13 @@ export class AlphaMiniBleClient {
 
   private currentStage: BleStage = 'idle';
 
+  private stageStartedAt = Date.now();
+  private scanSequence = 0;
+  private disconnectionSub: Subscription | null = null;
+
   private scanTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private finishScan: (() => void) | null = null;
+  private finishScan: ((reason?: string) => void) | null = null;
 
   private clearScanTimer(): void {
     if (this.scanTimer !== null) {
@@ -76,6 +81,8 @@ export class AlphaMiniBleClient {
   }
 
   private emitStage(stage: BleStage) {
+    bleDiag("gatt-stage", {previousStage: this.currentStage, stage, elapsedMs: Date.now() - this.stageStartedAt});
+    this.stageStartedAt = Date.now();
     this.currentStage = stage;
     this.onEvent({ type: 'stage', stage });
   }
@@ -107,15 +114,21 @@ export class AlphaMiniBleClient {
   }
 
   async scan(timeoutMs: number = BLE.SCAN_TIMEOUT_MS): Promise<void> {
-    this.stopScan();
+    this.stopScan("restart");
+    const scanId = ++this.scanSequence;
+    const startedAt = Date.now();
+    let rawCount = 0;
+    let matchedCount = 0;
+    bleDiag("scan-start", {scanId, timeoutMs, namePrefix: BLE.NAME_PREFIX, serviceFilter: null});
     this.emitStage('scanning');
     return new Promise<void>((resolve, reject) => {
       let settled = false;
-      const finish = () => {
+      const finish = (reason = "timeout") => {
         if (settled) {
           return;
         }
         settled = true;
+        bleDiag("scan-stop", {scanId, reason, elapsedMs: Date.now() - startedAt, rawCount, matchedCount});
         this.clearScanTimer();
         this.finishScan = null;
         this.ble.stopDeviceScan();
@@ -125,8 +138,9 @@ export class AlphaMiniBleClient {
 
       this.finishScan = finish;
       this.ble.startDeviceScan(null, null, (error, scanned) => {
-        if (settled) { return; }
+        if (settled) { bleDiag("scan-late-callback", {scanId}); return; }
         if (error) {
+          bleDiag("scan-error", {scanId, elapsedMs: Date.now() - startedAt, ...bleErrorFields(error)});
           if (!settled) {
             settled = true;
             this.clearScanTimer();
@@ -138,6 +152,10 @@ export class AlphaMiniBleClient {
           return;
         }
         const name = scanned?.name ?? scanned?.localName ?? '';
+        rawCount++;
+        const matched = name.startsWith(BLE.NAME_PREFIX);
+        if (matched) { matchedCount++; }
+        bleDiag('scan-device', {scanId, deviceId: maskedDeviceId(scanned?.id ?? ''), name: scanned?.name, localName: scanned?.localName, rssi: scanned?.rssi, serviceUUIDs: scanned?.serviceUUIDs, matched, reason: matched ? 'name-prefix-match' : name ? 'name-prefix-mismatch' : 'missing-name'});
         if (name.startsWith(BLE.NAME_PREFIX)) {
           this.onEvent({
             type: 'device-found',
@@ -156,10 +174,10 @@ export class AlphaMiniBleClient {
     });
   }
 
-  stopScan(): void {
+  stopScan(reason = "manual"): void {
     this.clearScanTimer();
     if (this.finishScan) {
-      this.finishScan();
+      this.finishScan(reason);
       return;
     }
     this.ble.stopDeviceScan();
@@ -173,6 +191,8 @@ export class AlphaMiniBleClient {
     ssid: string,
     password: string,
   ): Promise<void> {
+    rememberDiagnosticSecrets(password);
+    bleDiag("provision-start", {deviceId: maskedDeviceId(deviceId), ssid, wifiSecured: Boolean(password), connectTimeoutMs: BLE.CONNECT_TIMEOUT_MS});
     this.responseQueue = [];
     this.responseWaiters = [];
     let ipOut: string | null = null;
@@ -183,11 +203,19 @@ export class AlphaMiniBleClient {
         timeout: BLE.CONNECT_TIMEOUT_MS,
       });
       this.device = dev;
+      bleDiag('connect-complete', {deviceId: maskedDeviceId(dev.id), mtu: dev.mtu});
+      try {
+        this.disconnectionSub = dev.onDisconnected(error => {
+          bleDiag('disconnected', {deviceId: maskedDeviceId(dev.id), stage: this.currentStage, ...(error ? bleErrorFields(error) : {})});
+        });
+      } catch (error) { bleDiag('disconnect-observer-error', bleErrorFields(error)); }
 
       this.emitStage('discovering');
-      await dev.requestMTU(BLE.MTU_SIZE);
+      const mtuDevice = await dev.requestMTU(BLE.MTU_SIZE);
+      bleDiag("mtu-complete", {requested: BLE.MTU_SIZE, negotiated: mtuDevice.mtu});
       await delay(200);
       await dev.discoverAllServicesAndCharacteristics();
+      bleDiag("discovery-complete", {service: BLE.SERVICE_UUID, writeCharacteristic: BLE.CHAR_WRITE_UUID, indicationCharacteristic: BLE.CHAR_INDICATE_UUID});
 
       this.emitStage('enabling-indication');
       this.indicationSub = dev.monitorCharacteristicForService(
@@ -195,6 +223,7 @@ export class AlphaMiniBleClient {
         BLE.CHAR_INDICATE_UUID,
         (error, characteristic) => {
           if (error) {
+            bleDiag("indication-error", {stage: this.currentStage, ...bleErrorFields(error)});
             this.onEvent({
               type: 'error',
               message: error.message,
@@ -208,15 +237,17 @@ export class AlphaMiniBleClient {
           }
           const bytes = base64ToBytes(v);
           const parsed = tryParseResponse(bytes);
+          bleDiag("response", {stage: this.currentStage, parsed}, bytes);
           this.onEvent({ type: 'response', data: bytes, parsed });
           this.dispatchResponse(bytes);
         },
       );
+      bleDiag("monitor-registered", {characteristic: BLE.CHAR_INDICATE_UUID, acknowledgementObserved: false});
       await delay(300);
 
       this.emitStage('authenticating');
-      const { packet: authPacket, salt } = buildAuthPacket();
-      this.onEvent({ type: 'log', message: `Auth salt=${salt}` });
+      const { packet: authPacket } = buildAuthPacket();
+      bleDiag("auth-request", {}, authPacket);
       await dev.writeCharacteristicWithResponseForService(
         BLE.SERVICE_UUID,
         BLE.CHAR_WRITE_UUID,
@@ -224,15 +255,17 @@ export class AlphaMiniBleClient {
       );
 
       const authResp = await this.waitForResponse(10000);
+      bleDiag("auth-response", {timedOut: authResp === null, timeoutMs: 10000}, authResp ?? undefined);
       if (!isAuthOk(authResp)) {
         throw new Error(
-          `Auth failed: ${authResp ? bytesToHex(authResp) : 'timeout'}`,
+          `Auth failed: ${authResp ? JSON.stringify(describeDiagnosticFrame(authResp)) : 'timeout'}`,
         );
       }
       await delay(300);
 
       this.emitStage('sending-wifi');
       const wifiPacket = buildWifiConfigPacket(ssid, password);
+      bleDiag("wifi-request", {}, wifiPacket);
       await dev.writeCharacteristicWithResponseForService(
         BLE.SERVICE_UUID,
         BLE.CHAR_WRITE_UUID,
@@ -241,12 +274,14 @@ export class AlphaMiniBleClient {
 
       this.emitStage('waiting-response');
       const wifiResp = await this.waitForResponse(BLE.RESPONSE_TIMEOUT_MS);
+      bleDiag("wifi-response", {timedOut: wifiResp === null, timeoutMs: BLE.RESPONSE_TIMEOUT_MS}, wifiResp ?? undefined);
       if (!wifiResp) {
         throw new Error('Robot WiFi response timeout');
       }
       const wifiParsed = tryParseResponse(wifiResp);
       ipOut = wifiParsed ? extractWifiIp(wifiParsed.payload) : null;
 
+      bleDiag("provision-complete", {ip: ipOut});
       this.emitStage('success');
       this.onEvent({
         type: 'provision-complete',
@@ -254,6 +289,7 @@ export class AlphaMiniBleClient {
       });
     } catch (e) {
       const failStage = this.currentStage;
+      bleDiag("provision-error", {stage: failStage, ...bleErrorFields(e)});
       this.emitStage('failed');
       this.onEvent({
         type: 'error',
@@ -267,22 +303,26 @@ export class AlphaMiniBleClient {
   }
 
   private async cleanup() {
+    bleDiag("disconnect-start", {deviceId: this.device ? maskedDeviceId(this.device.id) : null, stage: this.currentStage});
     try {
+      this.disconnectionSub?.remove();
+      this.disconnectionSub = null;
       this.indicationSub?.remove();
       this.indicationSub = null;
       if (this.device) {
         await this.device.cancelConnection();
       }
-    } catch {
-      /* ignore */
+    } catch (error) {
+      bleDiag("disconnect-error", bleErrorFields(error));
     }
+    bleDiag("disconnect-cleanup-complete", {deviceId: this.device ? maskedDeviceId(this.device.id) : null});
     this.device = null;
     this.responseQueue = [];
     this.responseWaiters = [];
   }
 
   async disconnect(): Promise<void> {
-    this.stopScan();
+    this.stopScan("disconnect");
     await this.cleanup();
   }
 }

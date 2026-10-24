@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BleStage } from '../ble/manager';
 import { AlphaMiniBleClient } from '../ble/manager';
-import { bytesToHex } from '../ble/encoding';
+import { redactDiagnostic } from '../ble/diagnostics';
 
 export type BleDeviceRow = { id: string; name: string; rssi: number };
 
@@ -16,7 +16,7 @@ export function useBleProvisioning() {
   const clientRef = useRef<AlphaMiniBleClient | null>(null);
 
   const pushLog = useCallback((msg: string) => {
-    setLogs(prev => [...prev.slice(-120), msg]);
+    setLogs(prev => [...prev.slice(-120), String(redactDiagnostic(msg))]);
   }, []);
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function useBleProvisioning() {
         pushLog(ev.message);
       }
       if (ev.type === 'response') {
-        pushLog(`resp ${bytesToHex(ev.data)}`);
+        pushLog('response received; see [BLE-DIAG] redacted frame-bytes');
       }
       if (ev.type === 'error') {
         setError(ev.message);
