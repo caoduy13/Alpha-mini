@@ -638,3 +638,51 @@ nhúng gì vào repo. Kết quả lưu ở `AlphaMiniApp/__tests__/fixtures/ble-
 App dùng chuỗi bắt buộc co=4→104, co=2→102/-1, co=12 và **chưa** gửi co=5/co=1.
 Handler co=2 trên robot không phụ thuộc hai lệnh này. Hai lệnh để dành cho bước UX quét Wi-Fi
 (mỗi lần đổi một biến).
+
+## 14. Provisioning qua app trên robot thật — 2026-10-25 (UTC+07:00)
+
+App release `4366dff` (APK `AlphaMini-ble-protocol-v2-2026-10-25-4366dff.apk`) chạy trên NP05J
+(Android 16), robot `Mini_EAA014UBT00012017` firmware v2.2.5.917. Log `[BLE-DIAG]` lấy từ logcat; mật khẩu
+và sessionId được che theo offset (mục 13, `diagnostics.ts`). Người dùng tự nhập Wi-Fi trong app.
+
+| Lượt | SSID gửi | Kết quả | Ghi chú |
+| --- | --- | --- | --- |
+| 1 (02:19:40) | `Lau 5.` | `{"co":-1,"ec":4}` sau 60,05 s | Không có mạng tên này; mạng thật là `Lau 5 .` |
+| 2 (02:22:44) | `Lau 5.` | `{"co":-1,"ec":4}` sau 60,4 s | Ô SSID điền sẵn giá trị đã lưu, chưa được sửa |
+| 3 (02:26:50) | `Lau 5 .` | `{"co":102}` sau 9,4 s | **Thành công** |
+
+Timeline lượt 3:
+
+```text
+02:26:50.439  provision-start (wifiSecured=true)
+02:26:51.156  connect-complete, MTU yêu cầu 512, thương lượng 517
+02:26:51.802  handshaking: gửi command 0 (1 mảnh, 19 byte)
+02:26:52.265  nhận command 1000 (5 mảnh), isSuccess=true, v2.2.5.917, sessionId [che]
+02:26:52.27x  gửi command 32 {"co":4} sendSerial=2 (2 mảnh)
+02:26:52.564  nhận command 1032 {"co":104,"cd":"0"}
+02:26:52.6xx  gửi command 32 {"co":2,...} sendSerial=3 (5 mảnh, JSON [che]), ACK đủ 5 mảnh
+02:27:02.259  nhận command 1032 {"co":102}
+02:27:02.3xx  gửi command 32 {"co":12} sendSerial=4 (2 mảnh)
+02:27:02.375  provision-complete, stage success
+```
+
+Kết luận có bằng chứng: handshake rỗng, co=4/104, co=2/102 và trailer phân mảnh (16 byte + groupId +
+fragmentNo, kể cả request nhiều mảnh) hoạt động trên firmware này. Không cần AppKey/tài khoản. Không
+mất kết nối BLE ngoài dự kiến ở cả ba lượt. ec=4 khớp với hẹn giờ 60 s của robot (mục 13.7) khi SSID
+không tồn tại.
+
+Chưa chứng minh: robot đã vào cùng LAN với server. Sau lượt 3, `/robot/connect` báo lỗi
+`Cannot connect to robot at 192.168.0.102` (fallback `ROBOT_IP` cũ). `mini_sdk.get_device_list(10)` trả
+0 thiết bị (cả MINI và EDU). Quét cổng 9090 trên 192.168.101.0/24 không thấy host nào mở. Đang chẩn
+đoán (card mạng PC, AP isolation, IP robot qua Fing).
+
+## 15. Việc UX còn lại (chưa sửa)
+
+1. **Danh sách bước trống khi lỗi.** Sau khi app chủ động ngắt BLE, `monitorCharacteristicForService` báo
+   "Operation was cancelled". `manager.ts` phát thêm sự kiện `error` với stage `failed`, ghi đè
+   `lastErrorStage`, nên `BleStageList` không còn đánh dấu được bước hỏng. Log hiện thêm dòng
+   `ERR [failed] Operation was cancelled`. Hướng sửa: bỏ qua lỗi indication khi đang cleanup.
+2. **Ô SSID điền sẵn giá trị đã lưu.** Gây gửi sai SSID ở lượt 1–2 (`Lau 5.` thay vì `Lau 5 .`). Hướng
+   sửa: chọn mạng từ danh sách robot quét (co=4/co=1 → co=101, mục 13.5), gửi kèm `b`/`c` chính xác;
+   hiển thị rõ khoảng trắng trong SSID.
+3. Robot không báo IP qua BLE. Màn thành công cần hướng dẫn bước LAN tiếp theo thay vì "IP gợi ý".
