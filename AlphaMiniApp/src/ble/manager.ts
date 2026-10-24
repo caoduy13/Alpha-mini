@@ -59,6 +59,17 @@ export class AlphaMiniBleClient {
 
   private currentStage: BleStage = 'idle';
 
+  private scanTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private finishScan: (() => void) | null = null;
+
+  private clearScanTimer(): void {
+    if (this.scanTimer !== null) {
+      clearTimeout(this.scanTimer);
+      this.scanTimer = null;
+    }
+  }
+
   constructor(onEvent: (e: BleEvent) => void, ble?: BleManager) {
     this.onEvent = onEvent;
     this.ble = ble ?? getBleManager();
@@ -96,6 +107,7 @@ export class AlphaMiniBleClient {
   }
 
   async scan(timeoutMs: number = BLE.SCAN_TIMEOUT_MS): Promise<void> {
+    this.stopScan();
     this.emitStage('scanning');
     return new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -104,15 +116,21 @@ export class AlphaMiniBleClient {
           return;
         }
         settled = true;
+        this.clearScanTimer();
+        this.finishScan = null;
         this.ble.stopDeviceScan();
         this.emitStage('idle');
         resolve();
       };
 
+      this.finishScan = finish;
       this.ble.startDeviceScan(null, null, (error, scanned) => {
+        if (settled) { return; }
         if (error) {
           if (!settled) {
             settled = true;
+            this.clearScanTimer();
+            this.finishScan = null;
             this.ble.stopDeviceScan();
             this.emitStage('idle');
             reject(error);
@@ -132,11 +150,18 @@ export class AlphaMiniBleClient {
         }
       });
 
-      setTimeout(finish, timeoutMs);
+      if (!settled) {
+        this.scanTimer = setTimeout(finish, timeoutMs);
+      }
     });
   }
 
   stopScan(): void {
+    this.clearScanTimer();
+    if (this.finishScan) {
+      this.finishScan();
+      return;
+    }
     this.ble.stopDeviceScan();
     if (this.currentStage === 'scanning') {
       this.emitStage('idle');
